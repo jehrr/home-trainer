@@ -8,7 +8,7 @@ from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -16,10 +16,11 @@ import agent
 import config
 import storage
 import tools
+from i18n import tr
 import weather
 
 storage.init_db()
-app = FastAPI(title="Тренер")
+app = FastAPI(title="Home Trainer")
 app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
 
 
@@ -72,13 +73,15 @@ class ProfileIn(BaseModel):
 
 @app.get("/")
 def index():
-    return FileResponse(config.STATIC_DIR / "index.html")
+    html = (config.STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(html.replace('<html lang="ru">', f'<html lang="{config.LANGUAGE}">', 1))
 
 
 @app.get("/api/status")
 def status():
     return {
         "model": config.MODEL,
+        "language": config.LANGUAGE,
         "anthropic_key": bool(config.ANTHROPIC_API_KEY),
         "intervals_key": bool(config.INTERVALS_API_KEY and config.INTERVALS_ATHLETE_ID),
     }
@@ -100,7 +103,7 @@ def new_conversation():
 def conversation(conv_id: int):
     conv = storage.get_conversation(conv_id)
     if not conv:
-        raise HTTPException(404, "Диалог не найден")
+        raise HTTPException(404, tr("err_conv_not_found"))
     return {"id": conv_id, "title": conv["title"], "has_summary": bool(conv["summary"]),
             "kind": conv.get("kind", "chat"), "running": conv_id in _running,
             "needs_answer": conv_id not in _running and agent.needs_answer(conv_id),
@@ -109,7 +112,7 @@ def conversation(conv_id: int):
 
 @app.patch("/api/conversations/{conv_id}")
 def rename(conv_id: int, body: TitleIn):
-    storage.rename_conversation(conv_id, body.title.strip()[:80] or "Без названия")
+    storage.rename_conversation(conv_id, body.title.strip()[:80] or tr("new_chat"))
     return {"ok": True}
 
 
@@ -128,7 +131,7 @@ _running_lock = threading.Lock()
 def _stream_turn(conv_id: int, text):
     with _running_lock:
         if conv_id in _running:
-            raise HTTPException(409, "Тренер ещё отвечает на предыдущее сообщение в этом диалоге")
+            raise HTTPException(409, tr("err_busy"))
         _running.add(conv_id)
     events: queue.Queue = queue.Queue()
 
@@ -159,16 +162,16 @@ def _stream_turn(conv_id: int, text):
 @app.post("/api/conversations/{conv_id}/chat")
 def chat(conv_id: int, body: ChatIn):
     if not body.message.strip():
-        raise HTTPException(400, "Пустое сообщение")
+        raise HTTPException(400, tr("err_empty_message"))
     if not storage.get_conversation(conv_id):
-        raise HTTPException(404, "Диалог не найден")
+        raise HTTPException(404, tr("err_conv_not_found"))
     return _stream_turn(conv_id, body.message.strip())
 
 
 @app.post("/api/conversations/{conv_id}/retry")
 def retry(conv_id: int):
     if not storage.get_conversation(conv_id):
-        raise HTTPException(404, "Диалог не найден")
+        raise HTTPException(404, tr("err_conv_not_found"))
     return _stream_turn(conv_id, None)
 
 
@@ -181,14 +184,14 @@ def memory():
         "profile_labels": storage.PROFILE_KEYS,
         "notes": storage.list_notes(),
         "places": storage.list_places(),
-        "plan": agent.plan_position(storage.get_profile()),
+        "plan": agent.plan_position(storage.get_profile(), for_ui=True),
     }
 
 
 @app.put("/api/profile")
 def set_profile(body: ProfileIn):
     if body.key not in storage.PROFILE_KEYS:
-        raise HTTPException(400, "Неизвестный параметр")
+        raise HTTPException(400, tr("err_unknown_param"))
     storage.set_profile(body.key, body.value.strip())
     return {"ok": True}
 
@@ -196,7 +199,7 @@ def set_profile(body: ProfileIn):
 @app.post("/api/notes")
 def add_note(body: NoteIn):
     if not body.text.strip():
-        raise HTTPException(400, "Пустая заметка")
+        raise HTTPException(400, tr("err_empty_note"))
     return {"id": storage.add_note(body.text.strip())}
 
 
@@ -215,9 +218,9 @@ def places():
 def save_place(body: PlaceIn):
     name = body.name.strip()
     if not name:
-        raise HTTPException(400, "Нужно имя места")
+        raise HTTPException(400, tr("err_place_name"))
     if not (-90 <= body.latitude <= 90 and -180 <= body.longitude <= 180):
-        raise HTTPException(400, "Широта от −90 до 90, долгота от −180 до 180")
+        raise HTTPException(400, tr("err_coords"))
     storage.save_place(name, round(body.latitude, 4), round(body.longitude, 4), body.note.strip())
     return {"ok": True}
 
@@ -252,22 +255,21 @@ def delete_place(name: str):
 
 # ── Брифинг и разбор недели ─────────────────────────────
 
-MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа",
-          "сентября", "октября", "ноября", "декабря"]
+
 
 
 @app.post("/api/special/{kind}")
 def special_conversation(kind: str):
     """Открыть сегодняшний брифинг или разбор недели; если его ещё нет — создать."""
     if kind not in ("brief", "review"):
-        raise HTTPException(404, "Неизвестный тип")
+        raise HTTPException(404, tr("err_unknown_type"))
     today = datetime.date.today()
     day = today.isoformat()
     existing = storage.find_conversation(kind, day)
     if existing:
         return {"id": existing["id"], "created": False}
-    label = "Утренний брифинг" if kind == "brief" else "Разбор недели"
-    conv_id = storage.create_conversation(f"{label}, {today.day} {MONTHS[today.month - 1]}", kind, day)
+    label = tr("brief") if kind == "brief" else tr("review")
+    conv_id = storage.create_conversation(tr("special_title", label=label, day=today.day, month=tr("months_gen")[today.month - 1]), kind, day)
     return {"id": conv_id, "created": True, "message": label}
 
 
@@ -329,8 +331,7 @@ def today(refresh: bool = False):
         return _today_cache["data"]
     data, is_error = tools.execute("get_wellness", {"days": 7})
     profile = storage.get_profile()
-    plan = (agent.plan_position(profile) if profile.get("plan_start_date")
-            else "Дата начала плана не указана. Её можно задать в разделе «Что тренер обо мне знает» или сказать тренеру.")
+    plan = agent.plan_position(profile, for_ui=True)
     result = {"plan": plan}
     if is_error:
         result["error"] = data.get("error")
@@ -344,11 +345,11 @@ def today(refresh: bool = False):
 
 
 if __name__ == "__main__":
-    print(f"\n  Тренер запущен: http://{'localhost' if config.HOST == '127.0.0.1' else config.HOST}:{config.PORT}")
-    print(f"  Модель: {config.MODEL}")
+    print(f"\n  Home Trainer: http://{'localhost' if config.HOST == '127.0.0.1' else config.HOST}:{config.PORT}")
+    print(f"  Model: {config.MODEL} | Language: {config.LANGUAGE}")
     if not config.ANTHROPIC_API_KEY:
-        print("  ⚠ Не задан ANTHROPIC_API_KEY в .env — чат работать не будет")
+        print("  ⚠ ANTHROPIC_API_KEY is not set in .env — the chat will not work")
     if not (config.INTERVALS_API_KEY and config.INTERVALS_ATHLETE_ID):
-        print("  ⚠ Не заданы ключи Intervals.icu в .env — данные тренировок недоступны")
-    print("  Ctrl+C — остановить\n")
+        print("  ⚠ Intervals.icu keys are not set in .env — workout data is unavailable")
+    print("  Ctrl+C to stop\n")
     uvicorn.run(app, host=config.HOST, port=config.PORT, log_level="warning")

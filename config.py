@@ -43,6 +43,10 @@ INTERVALS_API_KEY = os.getenv("INTERVALS_API_KEY", "")
 INTERVALS_ATHLETE_ID = os.getenv("INTERVALS_ATHLETE_ID", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
+LANGUAGE = os.getenv("LANGUAGE", "ru").strip().lower()
+if LANGUAGE not in ("ru", "en"):
+    LANGUAGE = "ru"
+
 MODEL = os.getenv("MODEL", "claude-sonnet-5")
 SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "claude-haiku-4-5-20251001")
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "2048"))

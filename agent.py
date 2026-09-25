@@ -12,19 +12,18 @@ import anthropic
 import config
 import storage
 import tools
+from i18n import tr
 
 _client: anthropic.Anthropic | None = None
 
-WEEKDAYS = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
-PHASES = [(1, 4, "фаза 1 — аэробная база"), (5, 8, "фаза 2 — порог"),
-          (9, 12, "фаза 3 — VO2max"), (13, 16, "фаза 4 — скорость и пик")]
+PHASE_WEEKS = [(1, 4), (5, 8), (9, 12), (13, 16)]
 
 
 def client() -> anthropic.Anthropic:
     global _client
     if _client is None:
         if not config.ANTHROPIC_API_KEY:
-            raise RuntimeError("Не задан ANTHROPIC_API_KEY в .env")
+            raise RuntimeError(tr("err_no_anthropic_key"))
         _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     return _client
 
@@ -33,38 +32,39 @@ def client() -> anthropic.Anthropic:
 
 def _static_prompt() -> str:
     parts = []
+    folder = config.PROMPTS_DIR / config.LANGUAGE
     for name in ("coach.md", "plan.md"):
-        path = config.PROMPTS_DIR / name
+        path = folder / name
         if path.exists():
             parts.append(path.read_text(encoding="utf-8").strip())
     return "\n\n".join(parts)
 
 
-def plan_position(profile: dict) -> str:
+def plan_position(profile: dict, for_ui: bool = False) -> str:
     start = profile.get("plan_start_date") or ""
     if not start:
-        return "Дата начала плана не задана — если это важно для ответа, спроси атлета и сохрани её."
+        return tr("plan_no_start_ui" if for_ui else "plan_no_start")
     try:
         days = (date.today() - date.fromisoformat(start)).days
     except ValueError:
-        return f"Дата начала плана записана некорректно: {start}"
+        return tr("plan_bad_start", start=start)
     if days < 0:
-        return f"План начнётся {start}."
+        return tr("plan_future", start=start)
     week = days // 7 + 1
     if week > 16:
-        return f"16-недельный план завершён: с начала прошло {week - 1} нед."
-    phase = next(p for lo, hi, p in PHASES if lo <= week <= hi)
-    rest = " Разгрузочная неделя с FTP-тестом." if week % 4 == 0 else ""
-    return f"Сейчас неделя {week} из 16, {phase}.{rest}"
+        return tr("plan_done", weeks=week - 1)
+    phase = tr("phases")[next(i for i, (lo, hi) in enumerate(PHASE_WEEKS) if lo <= week <= hi)]
+    rest = tr("plan_rest_week") if week % 4 == 0 else ""
+    return tr("plan_week", week=week, phase=phase) + rest
 
 
 def _dynamic_prompt(conversation: dict) -> str:
     profile = storage.get_profile()
     now = datetime.now()
     lines = [
-        f"## Сейчас\n{now.strftime('%Y-%m-%d %H:%M')}, {WEEKDAYS[now.weekday()]}.",
+        f"{tr('h_now')}\n{now.strftime('%Y-%m-%d %H:%M')}, {tr('weekdays')[now.weekday()]}.",
         plan_position(profile),
-        "\n## Профиль атлета",
+        "\n" + tr("h_profile"),
     ]
     for key, label in storage.PROFILE_KEYS.items():
         if profile.get(key):
@@ -72,20 +72,20 @@ def _dynamic_prompt(conversation: dict) -> str:
 
     notes = storage.list_notes()
     if notes:
-        lines.append("\n## Заметки об атлете")
+        lines.append("\n" + tr("h_notes"))
         lines += [f"- {n['text']}" for n in notes]
 
     places = storage.list_places()
-    lines.append("\n## Сохранённые места тренировок")
+    lines.append("\n" + tr("h_places"))
     if places:
         for p in places:
             note = f" — {p['note']}" if p.get("note") else ""
             lines.append(f"- {p['name']} ({p['latitude']}, {p['longitude']}){note}")
     else:
-        lines.append("- пока нет")
+        lines.append(tr("none_yet"))
 
     if conversation.get("summary"):
-        lines.append("\n## Резюме более ранней части этого разговора\n" + conversation["summary"])
+        lines.append("\n" + tr("h_summary") + "\n" + conversation["summary"])
     return "\n".join(lines)
 
 
@@ -179,7 +179,7 @@ def _render_for_summary(rows: list[dict]) -> str:
         for b in _as_blocks(r["content"]):
             t = b.get("type")
             if t == "text" and b.get("text", "").strip():
-                who = "Атлет" if r["role"] == "user" else "Тренер"
+                who = tr("athlete") if r["role"] == "user" else tr("coach")
                 out.append(f"{who}: {b['text'].strip()}")
             elif t == "tool_use":
                 out.append(f"[тренер вызвал {b['name']} {json.dumps(b.get('input', {}), ensure_ascii=False)}]")
@@ -200,12 +200,7 @@ def maybe_compact(conv_id: int) -> None:
     cutoff = turns[-config.HISTORY_KEEP_TURNS - 1]
     old_rows = [r for r in rows if r["turn"] <= cutoff]
     transcript = _render_for_summary(old_rows)
-    prompt = (
-        "Ты ведёшь конспект разговора тренера по велоспорту с атлетом. Обнови резюме: объедини прежнее резюме "
-        "и новый фрагмент. Сохрани факты о состоянии атлета, ключевые цифры (мощность, HRV, нагрузка), принятые "
-        "решения и договорённости, открытые вопросы. Не больше 250 слов, по-русски, без вступлений.\n\n"
-        f"Прежнее резюме:\n{conv['summary'] or '(нет)'}\n\nНовый фрагмент:\n{transcript}"
-    )
+    prompt = tr("summary_prompt", old=conv["summary"] or tr("summary_none"), text=transcript)
     try:
         resp = client().messages.create(model=config.SUMMARY_MODEL, max_tokens=700,
                                         messages=[{"role": "user", "content": prompt}])
@@ -234,13 +229,13 @@ def run_turn(conv_id: int, user_text: str | None) -> Iterator[dict]:
     """
     conv = storage.get_conversation(conv_id)
     if not conv:
-        yield {"type": "error", "message": "Диалог не найден"}
+        yield {"type": "error", "message": tr("err_conv_not_found")}
         return
 
     if user_text is None:
         turn = storage.next_turn(conv_id) - 1
         if turn < 1:
-            yield {"type": "error", "message": "Нечего повторять"}
+            yield {"type": "error", "message": tr("err_nothing_to_retry")}
             return
     else:
         turn = storage.next_turn(conv_id)
@@ -298,7 +293,7 @@ def run_turn(conv_id: int, user_text: str | None) -> Iterator[dict]:
         yield {"type": "error", "message": f"Claude API {e.status_code}: {getattr(e, 'message', e)}"}
     except anthropic.APIConnectionError as e:
         print(f"  ✗ Нет связи с Claude API: {e}", flush=True)
-        yield {"type": "error", "message": "Нет связи с Claude API. Проверь интернет и попробуй ещё раз."}
+        yield {"type": "error", "message": tr("err_no_claude")}
     except Exception as e:
         traceback.print_exc()
         yield {"type": "error", "message": f"{type(e).__name__}: {e}"}

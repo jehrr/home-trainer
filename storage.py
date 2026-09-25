@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from datetime import datetime
 
 import config
+import i18n
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS conversations (
@@ -72,42 +73,14 @@ CREATE TABLE IF NOT EXISTS places (
 );
 """
 
-# Стартовый профиль. Дальше тренер обновляет его сам по ходу разговоров.
-DEFAULT_PROFILE = {
-    "name": "Пётр",
-    "age": "48",
-    "weight_kg": "78",
-    "height_cm": "186",
-    "discipline": "шоссе",
-    "ftp_w": "242",
-    "ftp_goal_w": "272",
-    "plan_start_date": "",
-}
+# Стартовый профиль пустой: тренер заполняет его сам по ходу разговоров,
+# или его можно заполнить в разделе «Обо мне».
+DEFAULT_PROFILE = {"discipline": ""}
 
-DEFAULT_NOTES = [
-    "Каденс исторически низкий (58–76 об/мин), цель — 85–95.",
-    "Сильный спринт: лучшие 5 с около 1080 Вт.",
-    "Велокомпьютер Wahoo ELEMNT, файлы идут в Intervals через Dropbox. "
-    "Активности из Strava через API Intervals недоступны.",
-]
+DEFAULT_NOTES: list = []
 
-# Ключи профиля, которые разрешено менять
-PROFILE_KEYS = {
-    "name": "имя",
-    "age": "возраст, лет",
-    "weight_kg": "вес, кг",
-    "height_cm": "рост, см",
-    "discipline": "дисциплина",
-    "ftp_w": "текущий FTP, Вт",
-    "ftp_goal_w": "целевой FTP, Вт",
-    "max_hr": "максимальный пульс",
-    "lthr": "пульс на пороге (LTHR)",
-    "plan_start_date": "дата начала 16-недельного плана (ГГГГ-ММ-ДД)",
-    "target_event": "целевой старт и дата",
-    "weekly_hours": "доступно часов в неделю",
-    "default_place": "обычное место тренировок (имя сохранённого места)",
-    "default_start_time": "обычное время старта (ЧЧ:ММ)",
-}
+# Ключи профиля, которые разрешено менять, с подписями на выбранном языке
+PROFILE_KEYS = i18n.tr("profile_labels")
 
 
 def _now() -> str:

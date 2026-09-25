@@ -10,6 +10,7 @@ from datetime import date, timedelta
 import intervals
 import storage
 import weather
+from i18n import tr
 from intervals import pick
 
 FEEL_LABELS = {1: "тяжело", 2: "так себе", 3: "нормально", 4: "хорошо", 5: "отлично"}
@@ -216,23 +217,7 @@ TOOLS = [
     },
 ]
 
-TOOL_LABELS = {
-    "get_morning_snapshot": "Собираю утреннюю сводку",
-    "get_recent_activities": "Смотрю последние тренировки",
-    "get_activity_details": "Разбираю тренировку",
-    "get_wellness": "Проверяю восстановление",
-    "get_training_analysis": "Считаю аналитику за несколько недель",
-    "get_plan": "Открываю план",
-    "add_planned_workouts": "Добавляю в план",
-    "update_planned_workout": "Меняю план",
-    "delete_planned_workouts": "Удаляю из плана",
-    "compare_plan_vs_actual": "Сверяю план с фактом",
-    "save_ride_feedback": "Записываю ощущения",
-    "get_weather": "Смотрю прогноз погоды",
-    "save_place": "Сохраняю место",
-    "update_profile": "Обновляю профиль",
-    "add_note": "Записываю в заметки",
-}
+TOOL_LABELS = tr("tool_labels")
 
 POWER_ZONES = [
     ("Z1 восстановление", 0.00, 0.60),
@@ -860,14 +845,14 @@ def _resolve_location(place=None, latitude=None, longitude=None) -> dict:
         if len(places) == 1:
             p = places[0]
             return {"name": p["name"], "latitude": p["latitude"], "longitude": p["longitude"], "saved": True}
-        raise ValueError("Не указано место. Спроси атлета, где он будет тренироваться.")
+        raise ValueError(tr("err_place_missing"))
     saved = storage.find_place(place)
     if saved:
         return {"name": saved["name"], "latitude": saved["latitude"], "longitude": saved["longitude"],
                 "note": saved.get("note"), "saved": True}
     found = weather.geocode(place, count=3)
     if not found:
-        raise ValueError(f"Место «{place}» не найдено. Уточни название или координаты.")
+        raise ValueError(tr("err_place_not_found", place=place))
     g = found[0]
     loc = {"name": g["name"], "region": g["region"], "latitude": g["latitude"], "longitude": g["longitude"]}
     if len(found) > 1:

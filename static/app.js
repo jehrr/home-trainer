@@ -4,12 +4,7 @@ const $ = (id) => document.getElementById(id);
 let currentId = null;
 let busy = false;
 
-const SUGGESTIONS = [
-  "Что у меня сегодня по плану и готов ли я к нему?",
-  "Разбери последнюю тренировку",
-  "Как я восстановился за неделю?",
-  "Завтра еду утром — посмотри погоду и скажи, что надеть",
-];
+const SUGGESTIONS = t("suggestions");
 
 // ── Утилиты ─────────────────────────────────────────────
 
@@ -89,13 +84,13 @@ function setGauge(id, value, cls) {
 
 async function loadToday(refresh = false) {
   try {
-    const t = await api("/api/today" + (refresh ? "?refresh=1" : ""));
-    $("plan-line").textContent = t.plan;
-    if (t.error) { $("today-note").textContent = t.error; return; }
-    const d = t.latest || {};
+    const td = await api("/api/today" + (refresh ? "?refresh=1" : ""));
+    $("plan-line").textContent = td.plan;
+    if (td.error) { $("today-note").textContent = td.error; return; }
+    const d = td.latest || {};
     let hrvCls = "";
-    if (d.hrv && t.hrv_avg) {
-      const diff = d.hrv / t.hrv_avg - 1;
+    if (d.hrv && td.hrv_avg) {
+      const diff = d.hrv / td.hrv_avg - 1;
       hrvCls = diff <= -0.1 ? "bad" : diff < -0.03 ? "warn" : "good";
     }
     setGauge("g-hrv", d.hrv != null ? Math.round(d.hrv) : null, hrvCls);
@@ -103,13 +98,13 @@ async function loadToday(refresh = false) {
     setGauge("g-rhr", d.resting_hr != null ? Math.round(d.resting_hr) : null);
     setGauge("g-form", d.form_tsb != null ? Math.round(d.form_tsb) : null,
       d.form_tsb != null ? (d.form_tsb < -25 ? "bad" : d.form_tsb < -10 ? "warn" : "good") : "");
-    const trend = (t.hrv_trend || []).filter((v) => v != null);
+    const trend = (td.hrv_trend || []).filter((v) => v != null);
     const max = Math.max(...trend, 1), min = Math.min(...trend, max);
     const h = (v) => (max === min ? 70 : 25 + Math.round(((v - min) / (max - min)) * 75));
     $("spark").innerHTML = trend.map((v) => `<span style="height:${h(v)}%" title="HRV ${Math.round(v)}"></span>`).join("");
-    $("today-note").textContent = d.date ? `Данные за ${d.date}${t.hrv_avg ? `, средний HRV за неделю ${t.hrv_avg}` : ""}` : "Нет данных восстановления";
+    $("today-note").textContent = d.date ? (td.hrv_avg ? t("today_data_avg", { date: d.date, avg: td.hrv_avg }) : t("today_data", { date: d.date })) : t("no_recovery");
   } catch (e) {
-    $("today-note").textContent = "Не удалось загрузить данные восстановления";
+    $("today-note").textContent = t("recovery_failed");
   }
 }
 
@@ -128,10 +123,10 @@ async function loadConversations() {
     name.onclick = () => openConversation(c.id);
     const del = document.createElement("button");
     del.className = "conv-del";
-    del.textContent = "Удалить";
-    del.setAttribute("aria-label", `Удалить диалог «${c.title}»`);
+    del.textContent = t("delete");
+    del.setAttribute("aria-label", t("delete_chat_label", { title: c.title }));
     del.onclick = async () => {
-      if (!confirm(`Удалить диалог «${c.title}»?`)) return;
+      if (!confirm(t("delete_chat_confirm", { title: c.title }))) return;
       await api(`/api/conversations/${c.id}`, { method: "DELETE" });
       if (c.id === currentId) currentId = null;
       await loadConversations();
@@ -144,10 +139,10 @@ async function loadConversations() {
 }
 
 function showEmpty() {
-  $("conv-title").textContent = "Новый диалог";
+  $("conv-title").textContent = t("new_chat");
   $("messages").innerHTML =
-    `<div class="empty"><h2>О чём поговорим?</h2>
-     <p>Тренер сам посмотрит тренировки, восстановление, календарь и погоду, когда это нужно для ответа.</p>
+    `<div class="empty"><h2>${esc(t("empty_title"))}</h2>
+     <p>${esc(t("empty_text"))}</p>
      <div class="suggestions">${SUGGESTIONS.map((s) => `<button class="suggestion">${esc(s)}</button>`).join("")}</div></div>`;
   document.querySelectorAll(".suggestion").forEach((b) => (b.onclick = () => send(b.textContent)));
 }
@@ -223,7 +218,7 @@ async function retryAnswer() {
 function showPending(id) {
   const box = document.createElement("div");
   box.className = "msg assistant retry-box";
-  box.innerHTML = `<p class="retry-text"><span class="typing">Тренер ещё готовит ответ…</span></p>`;
+  box.innerHTML = `<p class="retry-text"><span class="typing">${t("still_preparing")}</span></p>`;
   $("messages").append(box);
   // Перечитываем диалог каждые 3 секунды, пока ответ не будет готов
   setTimeout(() => { if (currentId === id && !busy) openConversation(id); }, 3000);
@@ -232,7 +227,7 @@ function showPending(id) {
 function showRetry() {
   const box = document.createElement("div");
   box.className = "msg assistant retry-box";
-  box.innerHTML = `<p class="retry-text">Ответ на этот вопрос не пришёл.</p><button class="ghost-dark-btn">Повторить</button>`;
+  box.innerHTML = `<p class="retry-text">${t("no_answer")}</p><button class="ghost-dark-btn">${t("retry")}</button>`;
   box.querySelector("button").onclick = retryAnswer;
   $("messages").append(box);
   scrollDown();
@@ -244,7 +239,7 @@ async function streamAnswer(url, payload) {
   const convAtStart = currentId;
   const el = addAssistant();
   const body = el.querySelector(".body");
-  body.innerHTML = `<span class="typing">Думаю…</span>`;
+  body.innerHTML = `<span class="typing">${t("thinking")}</span>`;
   scrollDown();
 
   let answer = "";
@@ -282,7 +277,7 @@ async function streamAnswer(url, payload) {
           pendingRow.className = "tool-row " + (ev.ok ? "ok" : "fail");
           if (!ev.ok && ev.error) pendingRow.title = ev.error;
           pendingRow = null;
-          if (!answer) body.innerHTML = `<span class="typing">Думаю…</span>`;
+          if (!answer) body.innerHTML = `<span class="typing">${t("thinking")}</span>`;
         } else if (ev.type === "error") {
           failed = true;
           const err = document.createElement("div");
@@ -295,7 +290,7 @@ async function streamAnswer(url, payload) {
     }
   } catch (e) {
     failed = true;
-    body.innerHTML = `<div class="msg error">Ответ не получен: ${esc(e.message)}</div>`;
+    body.innerHTML = `<div class="msg error">${esc(t("answer_failed", { msg: e.message }))}</div>`;
   } finally {
     if (!answer && body.querySelector(".typing")) body.innerHTML = "";
     busy = false;
@@ -321,17 +316,17 @@ async function openMemory() {
   const profileRows = Object.entries(m.profile_labels).map(([key, label]) =>
     `<label class="prof-row"><span>${esc(label)}</span><input data-key="${key}" data-orig="${esc(m.profile[key] || "")}" value="${esc(m.profile[key] || "")}"${key === "plan_start_date" ? ' placeholder="2026-05-25"' : ""}></label>`).join("");
   const notes = m.notes.length
-    ? m.notes.map((n) => `<div class="mem-item"><span>${esc(n.text)}<small>${esc(n.created_at.slice(0, 10))}</small></span><button class="mem-del" data-note="${n.id}">Удалить</button></div>`).join("")
-    : `<p class="mem-hint">Пока пусто. Тренер добавляет сюда важные факты сам, можно дописать и вручную.</p>`;
-  const places = `<p class="mem-hint">${m.places.length ? "Сохранено мест: " + m.places.length + ". " : ""}Места настраиваются в меню «Погода и места».</p>`;
-  b.innerHTML = `<h3>План</h3><p class="mem-hint">${esc(m.plan)}</p>
-    <h3>Профиль</h3>
+    ? m.notes.map((n) => `<div class="mem-item"><span>${esc(n.text)}<small>${esc(n.created_at.slice(0, 10))}</small></span><button class="mem-del" data-note="${n.id}">${t("delete")}</button></div>`).join("")
+    : `<p class="mem-hint">${t("notes_empty")}</p>`;
+  const places = `<p class="mem-hint">${m.places.length ? t("places_count", { n: m.places.length }) : ""}${t("places_hint")}</p>`;
+  b.innerHTML = `<h3>${t("plan")}</h3><p class="mem-hint">${esc(m.plan)}</p>
+    <h3>${t("profile")}</h3>
     <form id="profile-form">${profileRows}
-      <div class="form-actions"><button type="submit" class="primary-btn" id="profile-save" disabled>Сохранить</button><span class="save-msg" id="profile-msg"></span></div>
+      <div class="form-actions"><button type="submit" class="primary-btn" id="profile-save" disabled>${t("save")}</button><span class="save-msg" id="profile-msg"></span></div>
     </form>
-    <h3>Заметки</h3>${notes}
-    <form class="note-add" id="note-form"><input id="note-input" placeholder="Например: болит левое колено после длинных подъёмов"><button type="submit" class="ghost-dark-btn">Добавить</button></form>
-    <h3>Места тренировок</h3>${places}`;
+    <h3>${t("notes")}</h3>${notes}
+    <form class="note-add" id="note-form"><input id="note-input" placeholder="${esc(t("note_placeholder"))}"><button type="submit" class="ghost-dark-btn">${t("add")}</button></form>
+    <h3>${t("weather_places")}</h3>${places}`;
 
   const form = $("profile-form");
   const inputs = [...form.querySelectorAll("input[data-key]")];
@@ -352,11 +347,11 @@ async function openMemory() {
         i.dataset.orig = i.value.trim();
       }
       memoryDirty = false;
-      $("profile-msg").textContent = "Сохранено";
+      $("profile-msg").textContent = t("saved");
       $("profile-msg").className = "save-msg ok";
       loadToday(true);
     } catch (err) {
-      $("profile-msg").textContent = "Не сохранилось: " + err.message;
+      $("profile-msg").textContent = t("save_failed", { msg: err.message });
       $("profile-msg").className = "save-msg bad";
       refreshDirty();
     }
@@ -378,7 +373,7 @@ async function openMemory() {
 
 function closeMemory() {
   if ($("memory").hidden) return;
-  if (memoryDirty && !confirm("Изменения в профиле не сохранены. Закрыть без сохранения?")) return;
+  if (memoryDirty && !confirm(t("unsaved_confirm"))) return;
   memoryDirty = false;
   $("memory").hidden = true;
   syncBackdrop();
@@ -399,10 +394,10 @@ async function renderPlaces(selectName) {
   const list = $("places-list");
   list.innerHTML = placesCache.length
     ? placesCache.map((p) => `<div class="mem-item"><span>${esc(p.name)}<small>${p.latitude}, ${p.longitude}${p.note ? ". " + esc(p.note) : ""}</small></span>
-        <span class="place-actions"><button class="mem-del" data-edit="${esc(p.name)}">Изменить</button><button class="mem-del" data-del="${esc(p.name)}">Удалить</button></span></div>`).join("")
-    : `<p class="mem-hint">Пока нет сохранённых мест. Добавь первое ниже.</p>`;
+        <span class="place-actions"><button class="mem-del" data-edit="${esc(p.name)}">${t("edit")}</button><button class="mem-del" data-del="${esc(p.name)}">${t("delete")}</button></span></div>`).join("")
+    : `<p class="mem-hint">${t("no_places")}</p>`;
   list.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
-    if (!confirm(`Удалить место «${b.dataset.del}»?`)) return;
+    if (!confirm(t("delete_place_confirm", { name: b.dataset.del }))) return;
     await api(`/api/places/${encodeURIComponent(b.dataset.del)}`, { method: "DELETE" });
     renderPlaces();
   }));
@@ -416,40 +411,40 @@ async function renderPlaces(selectName) {
   const prev = selectName || sel.value;
   sel.innerHTML = placesCache.length
     ? placesCache.map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("")
-    : `<option value="">Сначала добавь место ниже</option>`;
+    : `<option value="">${t("add_place_first")}</option>`;
   if (prev && placesCache.some((p) => p.name === prev)) sel.value = prev;
   $("fc-go").disabled = !placesCache.length;
 }
 
-function windFlagText(g) { return g >= 45 ? "опасные порывы" : "сильный ветер"; }
+function windFlagText(g) { return t(g >= 45 ? "flag_gusts" : "flag_wind", { g: Math.round(g) }); }
 
 function renderForecast(fc, placeName, hours) {
   const s = fc.summary || {};
   const flags = [];
-  if (s.thunderstorm) flags.push(["гроза", "bad"]);
-  if (s.max_precip_prob_pct >= 60) flags.push([`дождь до ${s.max_precip_prob_pct}%`, "bad"]);
-  else if (s.max_precip_prob_pct >= 30) flags.push([`возможен дождь ${s.max_precip_prob_pct}%`, ""]);
-  if (s.max_gusts_kmh >= 35) flags.push([`${windFlagText(s.max_gusts_kmh)} ${Math.round(s.max_gusts_kmh)} км/ч`, s.max_gusts_kmh >= 45 ? "bad" : ""]);
-  if (s.feels_like_min_c != null && s.feels_like_min_c < 5) flags.push(["холодно", ""]);
-  if (s.temp_range_c && s.temp_range_c[1] >= 28) flags.push(["жара", s.temp_range_c[1] >= 33 ? "bad" : ""]);
+  if (s.thunderstorm) flags.push([t("flag_storm"), "bad"]);
+  if (s.max_precip_prob_pct >= 60) flags.push([t("flag_rain", { p: s.max_precip_prob_pct }), "bad"]);
+  else if (s.max_precip_prob_pct >= 30) flags.push([t("flag_rain_maybe", { p: s.max_precip_prob_pct }), ""]);
+  if (s.max_gusts_kmh >= 35) flags.push([windFlagText(s.max_gusts_kmh), s.max_gusts_kmh >= 45 ? "bad" : ""]);
+  if (s.feels_like_min_c != null && s.feels_like_min_c < 5) flags.push([t("flag_cold"), ""]);
+  if (s.temp_range_c && s.temp_range_c[1] >= 28) flags.push([t("flag_heat"), s.temp_range_c[1] >= 33 ? "bad" : ""]);
 
-  const t = s.temp_range_c || [];
+  const tRange = s.temp_range_c || [];
   const rows = fc.hourly.map((h) => `<tr><td>${h.time}</td><td>${Math.round(h.temp_c)}° <span class="cond">(${Math.round(h.feels_like_c)}°)</span></td>
       <td>${h.precip_prob_pct ?? "—"}%</td><td>${Math.round(h.wind_kmh)}/${Math.round(h.gusts_kmh)} ${h.wind_from}</td><td class="cond">${esc(h.conditions)}</td></tr>`).join("");
   $("fc-result").innerHTML = `<div class="fc-result">
     <div class="fc-summary"><strong>${esc(placeName)}, ${fc.date} (${fc.weekday})</strong><br>
-      ${[t[0] != null ? `${Math.round(t[0])}…${Math.round(t[1])}°, ощущается от ${Math.round(s.feels_like_min_c)}°` : "",
-         s.sunset ? `закат в ${s.sunset}` : ""].filter(Boolean).join(", ")}
+      ${[tRange[0] != null ? t("feels_from", { a: Math.round(tRange[0]), b: Math.round(tRange[1]), f: Math.round(s.feels_like_min_c) }) : "",
+         s.sunset ? t("sunset_at", { t: s.sunset }) : ""].filter(Boolean).join(", ")}
       ${flags.length ? `<div class="fc-flags">${flags.map(([f, c]) => `<span class="flag ${c}">${f}</span>`).join("")}</div>` : ""}
     </div>
-    <table class="fc-table"><thead><tr><th>Час</th><th>Темп.</th><th>Осадки</th><th>Ветер/порывы</th><th>Условия</th></tr></thead><tbody>${rows}</tbody></table>
-    <button class="primary-btn fc-ask" id="fc-ask">Обсудить с тренером</button></div>`;
+    <table class="fc-table"><thead><tr><th>${t("th_hour")}</th><th>${t("th_temp")}</th><th>${t("th_precip")}</th><th>${t("th_wind")}</th><th>${t("th_cond")}</th></tr></thead><tbody>${rows}</tbody></table>
+    <button class="primary-btn fc-ask" id="fc-ask">${t("discuss")}</button></div>`;
 
   $("fc-ask").onclick = () => {
     const time = $("fc-time").value.slice(0, 5);
-    const human = fc.date === isoDay(0) ? "Сегодня" : fc.date === isoDay(1) ? "Завтра" : fc.date;
+    const human = fc.date === isoDay(0) ? t("today_word") : fc.date === isoDay(1) ? t("tomorrow_word") : fc.date;
     closeWeather();
-    send(`${human} в ${time} тренируюсь: место «${placeName}», около ${hours} ч. Что надеть и какую тренировку делать с учётом погоды и восстановления?`);
+    send(t("discuss_msg", { day: human, time, place: placeName, hours }));
   };
 }
 
@@ -487,12 +482,12 @@ function initWeather() {
     const place = $("fc-place").value;
     if (!place) return;
     const hours = $("fc-hours").value;
-    $("fc-result").innerHTML = `<p class="mem-hint">Загружаю прогноз…</p>`;
+    $("fc-result").innerHTML = `<p class="mem-hint">${t("loading_forecast")}</p>`;
     try {
       const q = new URLSearchParams({ place, date: $("fc-date").value, start_time: $("fc-time").value.slice(0, 5), hours });
       renderForecast(await api("/api/weather?" + q), place, hours);
     } catch (err) {
-      $("fc-result").innerHTML = `<p class="save-msg bad">Прогноз не загрузился: ${esc(err.message)}</p>`;
+      $("fc-result").innerHTML = `<p class="save-msg bad">${esc(t("forecast_failed", { msg: err.message }))}</p>`;
     }
   };
 
@@ -501,10 +496,10 @@ function initWeather() {
     const q = $("geo-q").value.trim();
     if (!q) return;
     const box = $("geo-results");
-    box.innerHTML = `<p class="mem-hint">Ищу…</p>`;
+    box.innerHTML = `<p class="mem-hint">${t("searching")}</p>`;
     try {
       const found = await api("/api/geocode?q=" + encodeURIComponent(q));
-      if (!found.length) { box.innerHTML = `<p class="mem-hint">Ничего не нашлось. Попробуй другое написание или введи координаты.</p>`; return; }
+      if (!found.length) { box.innerHTML = `<p class="mem-hint">${t("nothing_found")}</p>`; return; }
       box.innerHTML = found.map((g, i) => `<button type="button" class="geo-opt" data-i="${i}">${esc(g.name)}<small>${esc(g.region)} · ${g.latitude}, ${g.longitude}</small></button>`).join("");
       box.querySelectorAll(".geo-opt").forEach((b) => (b.onclick = () => {
         const g = found[+b.dataset.i];
@@ -514,7 +509,7 @@ function initWeather() {
         $("pl-name").focus(); $("pl-name").select();
       }));
     } catch (err) {
-      box.innerHTML = `<p class="save-msg bad">Поиск не удался: ${esc(err.message)}</p>`;
+      box.innerHTML = `<p class="save-msg bad">${esc(t("search_failed", { msg: err.message }))}</p>`;
     }
   };
 
@@ -531,15 +526,15 @@ function initWeather() {
     const lat = parseCoord($("pl-lat").value), lon = parseCoord($("pl-lon").value);
     const msg = $("pl-msg");
     if (Number.isNaN(lat) || Number.isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-      msg.textContent = "Проверь координаты: широта от −90 до 90, долгота от −180 до 180"; msg.className = "save-msg bad"; return;
+      msg.textContent = t("bad_coords"); msg.className = "save-msg bad"; return;
     }
     try {
       await api("/api/places", { method: "POST", body: JSON.stringify({ name, latitude: lat, longitude: lon, note: $("pl-note").value }) });
-      msg.textContent = `«${name}» сохранено`; msg.className = "save-msg ok";
+      msg.textContent = t("place_saved", { name }); msg.className = "save-msg ok";
       ["pl-name", "pl-lat", "pl-lon", "pl-note", "geo-q"].forEach((id) => ($(id).value = ""));
       renderPlaces(name);
     } catch (err) {
-      msg.textContent = "Не сохранилось: " + err.message; msg.className = "save-msg bad";
+      msg.textContent = t("save_failed", { msg: err.message }); msg.className = "save-msg bad";
     }
   };
 }
@@ -547,7 +542,7 @@ function initWeather() {
 
 // ── Последний заезд и ощущения ─────────────────────────
 
-const FEEL = ["тяжело", "так себе", "нормально", "хорошо", "отлично"];
+const FEEL = t("feel");
 
 async function loadLastRide() {
   const box = $("last-ride");
@@ -557,17 +552,17 @@ async function loadLastRide() {
   if (!a) { box.innerHTML = ""; return; }
   const fb = data.feedback;
   const noData = a.data_available === false;
-  const name = noData ? "Тренировка из Strava" : (a.name || "Тренировка");
+  const name = noData ? t("strava_ride") : (a.name || t("ride"));
   const dur = a.duration_min || (fb && fb.manual_duration_min);
-  const meta = [a.date, dur ? `${dur} мин` : "", a.load_tss ? `TSS ${a.load_tss}` : ""].filter(Boolean).join(", ");
+  const meta = [a.date, dur ? `${dur} ${t("min")}` : "", a.load_tss ? `TSS ${a.load_tss}` : ""].filter(Boolean).join(", ");
   const fbText = fb && (fb.rpe || fb.feel)
     ? [fb.rpe ? `RPE ${fb.rpe}` : "", fb.feel ? FEEL[fb.feel - 1] : ""].filter(Boolean).join(", ") : "";
-  box.innerHTML = `<div class="lr-title">Последний заезд</div>
+  box.innerHTML = `<div class="lr-title">${t("last_ride")}</div>
     <div class="lr-name">${esc(name)}</div><div class="lr-meta">${esc(meta)}</div>
     ${fbText ? `<div class="lr-fb">${esc(fbText)}</div>` : ""}
     ${fb && fb.note ? `<div class="lr-meta">${esc(fb.note)}</div>` : ""}
-    ${noData && !(fb && fb.manual_duration_min) ? `<div class="lr-meta">Данных нет, можно вписать вручную</div>` : ""}
-    <button class="lr-btn" id="lr-open">${fbText ? "Изменить оценку" : "Как прошло?"}</button>
+    ${noData && !(fb && fb.manual_duration_min) ? `<div class="lr-meta">${t("no_data_manual")}</div>` : ""}
+    <button class="lr-btn" id="lr-open">${fbText ? t("edit_rating") : t("how_was_it")}</button>
     <div id="lr-form-box"></div>`;
   $("lr-open").onclick = () => showFeedbackForm(a, fb, noData);
 }
@@ -577,13 +572,13 @@ function showFeedbackForm(a, fb, noData) {
   let rpe = fb && fb.rpe, feel = fb && fb.feel;
   const box = $("lr-form-box");
   box.innerHTML = `<form class="lr-form" id="lr-form">
-      <span class="lr-label">Насколько тяжело, 1–10</span>
+      <span class="lr-label">${t("rpe_label")}</span>
       <div class="chips" id="lr-rpe">${[...Array(10)].map((_, i) => `<button type="button" class="chip" data-v="${i + 1}">${i + 1}</button>`).join("")}</div>
-      <span class="lr-label">Самочувствие</span>
+      <span class="lr-label">${t("feel_label")}</span>
       <div class="chips" id="lr-feel">${FEEL.map((f, i) => `<button type="button" class="chip wide" data-v="${i + 1}">${f}</button>`).join("")}</div>
-      ${noData ? `<div class="lr-row"><input id="lr-dur" inputmode="numeric" placeholder="минут" value="${fb && fb.manual_duration_min || ""}"><input id="lr-hr" inputmode="numeric" placeholder="ср. пульс" value="${fb && fb.manual_avg_hr || ""}"></div>` : ""}
-      <input id="lr-note" placeholder="Комментарий: ноги, дыхание, что мешало" value="${esc(fb && fb.note || "")}">
-      <div class="lr-actions"><button type="submit" class="primary-btn">Сохранить</button><button type="button" class="link-btn" id="lr-cancel">Отмена</button></div>
+      ${noData ? `<div class="lr-row"><input id="lr-dur" inputmode="numeric" placeholder="${t("minutes_ph")}" value="${fb && fb.manual_duration_min || ""}"><input id="lr-hr" inputmode="numeric" placeholder="${t("avg_hr_ph")}" value="${fb && fb.manual_avg_hr || ""}"></div>` : ""}
+      <input id="lr-note" placeholder="${esc(t("ride_note_ph"))}" value="${esc(fb && fb.note || "")}">
+      <div class="lr-actions"><button type="submit" class="primary-btn">${t("save")}</button><button type="button" class="link-btn" id="lr-cancel">${t("cancel")}</button></div>
     </form>`;
   const mark = (id, val) => $(id).querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", +c.dataset.v === val));
   mark("lr-rpe", rpe); mark("lr-feel", feel);
@@ -601,7 +596,7 @@ function showFeedbackForm(a, fb, noData) {
       if (h) body.avg_hr = h;
     }
     try { await api("/api/feedback", { method: "POST", body: JSON.stringify(body) }); loadLastRide(); }
-    catch (err) { alert("Не сохранилось: " + err.message); }
+    catch (err) { alert(t("save_failed", { msg: err.message })); }
   };
 }
 
@@ -618,42 +613,42 @@ async function openSpecial(kind) {
 
 // ── План ────────────────────────────────────────────────
 
-const STATUS_LABELS = { planned: "запланировано", done: "выполнено", partial: "частично", missed: "пропущено", skipped: "отменено", moved: "перенесено" };
-const WEEKDAYS_FULL = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
-const MONTHS_GEN = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+const STATUS_LABELS = t("statuses");
+const WEEKDAYS_FULL = t("weekdays");
+const MONTHS_GEN = t("months_gen");
 
 function dayLabel(iso) {
   const [y, m, d] = iso.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
-  return `${WEEKDAYS_FULL[dt.getDay()]}, ${d} ${MONTHS_GEN[m - 1]}`;
+  return t("day_label", { weekday: WEEKDAYS_FULL[dt.getDay()], day: d, month: MONTHS_GEN[m - 1] });
 }
 
 async function renderPlan() {
   const body = $("plan-body");
-  body.innerHTML = `<p class="mem-hint">Загружаю…</p>`;
+  body.innerHTML = `<p class="mem-hint">${t("loading")}</p>`;
   let data;
   try { data = await api(`/api/plan?date_from=${isoDay(-7)}&date_to=${isoDay(28)}`); }
   catch (err) { body.innerHTML = `<p class="save-msg bad">${esc(err.message)}</p>`; return; }
   if (!data.workouts.length) {
-    body.innerHTML = `<p class="mem-hint">План пуст. Нажми кнопку выше или напиши тренеру, например: «составь план на две недели, 6 часов в неделю, длинная в субботу».</p>`;
+    body.innerHTML = `<p class="mem-hint">${t("plan_empty")}</p>`;
     return;
   }
   const byDay = {};
   data.workouts.forEach((w) => (byDay[w.date] = byDay[w.date] || []).push(w));
   const today = isoDay(0);
   body.innerHTML = Object.keys(byDay).sort().map((day) => `
-    <div class="plan-day"><div class="plan-day-head ${day === today ? "is-today" : ""}">${day === today ? "Сегодня, " + dayLabel(day).toLowerCase() : dayLabel(day)}</div>
+    <div class="plan-day"><div class="plan-day-head ${day === today ? "is-today" : ""}">${day === today ? t("today_prefix") + (LANG === "ru" ? dayLabel(day).toLowerCase() : dayLabel(day)) : dayLabel(day)}</div>
     ${byDay[day].map((w) => {
-      const meta = [w.duration_min ? `${w.duration_min} мин` : "", w.target_tss ? `TSS ${w.target_tss}` : "",
-        w.indoor ? "станок" : (w.place || ""), w.start_time || ""].filter(Boolean).join(", ");
+      const meta = [w.duration_min ? `${w.duration_min} ${t("min")}` : "", w.target_tss ? `TSS ${w.target_tss}` : "",
+        w.indoor ? t("indoor") : (w.place || ""), w.start_time || ""].filter(Boolean).join(", ");
       const st = w.status || "planned";
       return `<div class="plan-item st-${st}">
         <div class="pi-top"><span class="pi-title">${esc(w.title)}</span><span class="status-tag ${st}">${STATUS_LABELS[st] || st}</span></div>
         ${meta ? `<div class="pi-meta">${esc(meta)}</div>` : ""}
         ${w.description ? `<div class="pi-desc">${esc(w.description)}</div>` : ""}
         <div class="pi-actions">
-          <select data-status="${w.id}" aria-label="Статус">${Object.entries(STATUS_LABELS).map(([k, v]) => `<option value="${k}" ${k === st ? "selected" : ""}>${v}</option>`).join("")}</select>
-          <button class="mem-del" data-remove="${w.id}">Удалить</button>
+          <select data-status="${w.id}" aria-label="${t("status")}">${Object.entries(STATUS_LABELS).map(([k, v]) => `<option value="${k}" ${k === st ? "selected" : ""}>${v}</option>`).join("")}</select>
+          <button class="mem-del" data-remove="${w.id}">${t("delete")}</button>
         </div></div>`;
     }).join("")}</div>`).join("");
   body.querySelectorAll("[data-status]").forEach((sel) => (sel.onchange = async () => {
@@ -661,7 +656,7 @@ async function renderPlan() {
     renderPlan();
   }));
   body.querySelectorAll("[data-remove]").forEach((b) => (b.onclick = async () => {
-    if (!confirm("Удалить тренировку из плана?")) return;
+    if (!confirm(t("delete_workout_confirm"))) return;
     await api(`/api/plan/${b.dataset.remove}`, { method: "DELETE" });
     renderPlan();
   }));
@@ -679,6 +674,7 @@ function closePlan() { $("plan-sheet").hidden = true; syncBackdrop(); }
 // ── Запуск ──────────────────────────────────────────────
 
 async function init() {
+  applyI18n();
   const input = $("input");
   input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = input.scrollHeight + "px"; });
   input.addEventListener("keydown", (e) => {
@@ -702,7 +698,7 @@ async function init() {
     closePlan();
     currentId = null;
     showEmpty();
-    send("Составь мне план на следующую неделю с учётом текущей формы, восстановления и моих мест и добавь его в план.");
+    send(t("plan_ask_msg"));
   };
   initWeather();
   $("today-refresh").onclick = () => loadToday(true);
@@ -712,10 +708,10 @@ async function init() {
 
   try {
     const s = await api("/api/status");
-    const missing = [!s.anthropic_key && "ANTHROPIC_API_KEY", !s.intervals_key && "ключи Intervals.icu"].filter(Boolean);
-    if (missing.length) { $("status").textContent = "Не заданы в .env: " + missing.join(", "); $("status").className = "status bad"; }
+    const missing = [!s.anthropic_key && "ANTHROPIC_API_KEY", !s.intervals_key && t("intervals_keys")].filter(Boolean);
+    if (missing.length) { $("status").textContent = t("missing_env", { list: missing.join(", ") }); $("status").className = "status bad"; }
     else $("status").textContent = s.model;
-  } catch { $("status").textContent = "Сервер недоступен"; $("status").className = "status bad"; }
+  } catch { $("status").textContent = t("server_down"); $("status").className = "status bad"; }
 
   loadToday();
   loadLastRide();
