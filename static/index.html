@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Тренер</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="side" id="side">
+    <div class="side-head">
+      <span class="brand">Тренер</span>
+      <button class="icon-btn only-mobile" id="side-close" aria-label="Закрыть панель">✕</button>
+    </div>
+
+    <section class="today" aria-label="Состояние сегодня">
+      <p class="plan-line" id="plan-line">Загружаю…</p>
+      <div class="gauges">
+        <div class="gauge"><span class="g-val" id="g-hrv">—</span><span class="g-lab">HRV</span></div>
+        <div class="gauge"><span class="g-val" id="g-sleep">—</span><span class="g-lab">сон, ч</span></div>
+        <div class="gauge"><span class="g-val" id="g-rhr">—</span><span class="g-lab">пульс покоя</span></div>
+        <div class="gauge"><span class="g-val" id="g-form">—</span><span class="g-lab">форма</span></div>
+      </div>
+      <div class="spark" id="spark" aria-hidden="true"></div>
+      <p class="today-note" id="today-note"></p>
+      <button class="link-btn" id="today-refresh">Обновить</button>
+    </section>
+
+    <section class="last-ride" id="last-ride" aria-label="Последний заезд"></section>
+
+    <div class="side-actions">
+      <button class="primary-btn" id="brief-btn">Утренний брифинг</button>
+      <div class="action-grid">
+        <button class="ghost-btn" id="open-plan">План</button>
+        <button class="ghost-btn" id="review-btn">Разбор недели</button>
+        <button class="ghost-btn" id="open-weather">Погода и места</button>
+        <button class="ghost-btn" id="open-memory">Обо мне</button>
+      </div>
+    </div>
+
+    <div class="convs-head">
+      <span>Диалоги</span>
+      <button class="link-btn" id="new-chat">Новый диалог</button>
+    </div>
+    <nav class="convs" id="convs" aria-label="Диалоги"></nav>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn only-mobile" id="side-open" aria-label="Открыть панель">☰</button>
+      <h1 class="conv-title" id="conv-title">Новый диалог</h1>
+      <span class="status" id="status"></span>
+    </header>
+
+    <div class="messages" id="messages" aria-live="polite"></div>
+
+    <form class="composer" id="composer">
+      <textarea id="input" rows="1" placeholder="Сообщение тренеру" aria-label="Сообщение тренеру"></textarea>
+      <button type="submit" class="send-btn" id="send">Отправить</button>
+    </form>
+  </main>
+</div>
+
+<div class="sheet-backdrop" id="memory-backdrop" hidden></div>
+<aside class="sheet" id="plan-sheet" hidden aria-label="План">
+  <div class="sheet-head">
+    <h2>План</h2>
+    <button class="icon-btn" id="plan-close" aria-label="Закрыть">✕</button>
+  </div>
+  <div class="sheet-body">
+    <button class="primary-btn plan-ask" id="plan-ask">Составить план на неделю с тренером</button>
+    <p class="mem-hint">Тренер добавляет и переносит тренировки сам по просьбе в чате. Статусы обновляются при сверке плана с фактом. Если панель была открыта во время ответа, закрой и открой её снова.</p>
+    <div id="plan-body"></div>
+  </div>
+</aside>
+<aside class="sheet" id="weather-sheet" hidden aria-label="Погода и места">
+  <div class="sheet-head">
+    <h2>Погода и места</h2>
+    <button class="icon-btn" id="weather-close" aria-label="Закрыть">✕</button>
+  </div>
+  <div class="sheet-body">
+    <h3>Прогноз на тренировку</h3>
+    <form id="fc-form" class="fc-form">
+      <label class="field wide">Место
+        <select id="fc-place"></select>
+      </label>
+      <label class="field">Дата <input type="date" id="fc-date" required></label>
+      <label class="field">Старт <input type="time" id="fc-time" value="08:00" step="3600" required></label>
+      <label class="field">Часов
+        <select id="fc-hours"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select>
+      </label>
+      <button type="submit" class="primary-btn" id="fc-go">Показать прогноз</button>
+    </form>
+    <div id="fc-result"></div>
+
+    <h3>Мои места</h3>
+    <div id="places-list"></div>
+
+    <h3>Добавить место</h3>
+    <p class="mem-hint">Найди по названию или вставь координаты, например из Google Maps: <code>43.4291, 39.9215</code>.</p>
+    <form id="geo-form" class="geo-search">
+      <input id="geo-q" placeholder="Название: Адлер, Лазаревское, Красная Поляна">
+      <button type="submit" class="ghost-dark-btn">Найти</button>
+    </form>
+    <div id="geo-results"></div>
+    <form id="place-form" class="place-form">
+      <label class="field wide">Имя места <input id="pl-name" placeholder="Побережье" required maxlength="40"></label>
+      <label class="field">Широта <input id="pl-lat" inputmode="decimal" placeholder="43.4291" required></label>
+      <label class="field">Долгота <input id="pl-lon" inputmode="decimal" placeholder="39.9215" required></label>
+      <label class="field wide">Описание для тренера <input id="pl-note" placeholder="Ровная дорога вдоль моря, ветрено"></label>
+      <div class="form-actions wide"><button type="submit" class="primary-btn">Сохранить место</button><span class="save-msg" id="pl-msg"></span></div>
+    </form>
+  </div>
+</aside>
+<aside class="sheet" id="memory" hidden aria-label="Память тренера">
+  <div class="sheet-head">
+    <h2>Что тренер обо мне знает</h2>
+    <button class="icon-btn" id="memory-close" aria-label="Закрыть">✕</button>
+  </div>
+  <div class="sheet-body" id="memory-body"></div>
+</aside>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

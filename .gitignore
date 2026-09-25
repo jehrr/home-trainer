@@ -1,0 +1,19 @@
+# Игнорируем всё, кроме файлов проекта
+/*
+!/.gitignore
+!/.env.example
+!/README.md
+!/requirements.txt
+!/app.py
+!/agent.py
+!/tools.py
+!/intervals.py
+!/weather.py
+!/storage.py
+!/config.py
+!/prompts/
+!/static/
+
+.env
+*.db
+__pycache__/
