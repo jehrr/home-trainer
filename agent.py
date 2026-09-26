@@ -30,14 +30,26 @@ def client() -> anthropic.Anthropic:
 
 # ── Системный промт ──────────────────────────────────────
 
+_prompt_warned = False
+
+
 def _static_prompt() -> str:
-    parts = []
-    folder = config.PROMPTS_DIR / config.LANGUAGE
-    for name in ("coach.md", "plan.md"):
-        path = folder / name
-        if path.exists():
-            parts.append(path.read_text(encoding="utf-8").strip())
-    return "\n\n".join(parts)
+    """Правила тренера и план. Ищем в папке своего языка, затем в старом месте, затем в другом языке."""
+    global _prompt_warned
+    other = "en" if config.LANGUAGE == "ru" else "ru"
+    for folder in (config.PROMPTS_DIR / config.LANGUAGE, config.PROMPTS_DIR, config.PROMPTS_DIR / other):
+        parts = [(folder / name).read_text(encoding="utf-8").strip()
+                 for name in ("coach.md", "plan.md") if (folder / name).exists()]
+        parts = [p for p in parts if p]
+        if parts:
+            if folder != config.PROMPTS_DIR / config.LANGUAGE and not _prompt_warned:
+                print(f"  ⚠ prompts/{config.LANGUAGE}/ not found, using {folder}", flush=True)
+                _prompt_warned = True
+            return "\n\n".join(parts)
+    if not _prompt_warned:
+        print(f"  ⚠ No coach prompts found in {config.PROMPTS_DIR} — the coach will work without its rules", flush=True)
+        _prompt_warned = True
+    return ""
 
 
 def plan_position(profile: dict, for_ui: bool = False) -> str:
@@ -90,10 +102,12 @@ def _dynamic_prompt(conversation: dict) -> str:
 
 
 def build_system(conversation: dict) -> list[dict]:
-    return [
-        {"type": "text", "text": _static_prompt(), "cache_control": {"type": "ephemeral"}},
-        {"type": "text", "text": _dynamic_prompt(conversation)},
-    ]
+    blocks = []
+    static = _static_prompt()
+    if static:  # API не принимает пустой блок, тем более с кэшем
+        blocks.append({"type": "text", "text": static, "cache_control": {"type": "ephemeral"}})
+    blocks.append({"type": "text", "text": _dynamic_prompt(conversation)})
+    return blocks
 
 
 def _tools_with_cache() -> list[dict]:
