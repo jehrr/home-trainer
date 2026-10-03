@@ -260,21 +260,32 @@ def run_turn(conv_id: int, user_text: str | None) -> Iterator[dict]:
 
     try:
         api = client()
-        for round_no in range(config.MAX_TOOL_ROUNDS + 1):
+        got_text = False
+        nudged = False
+        round_no = 0
+        while round_no <= config.MAX_TOOL_ROUNDS:
             conv = storage.get_conversation(conv_id)
+            messages = _with_cache_marker(build_messages(conv))
+            if nudged:
+                # После данных инструментов модель иногда завершает ход пустым ответом:
+                # одна мягкая подсказка, не сохраняется в истории
+                messages = messages + [{"role": "user", "content": [{"type": "text", "text": tr("nudge_answer")}]}]
+                messages = sanitize(messages)
             params = dict(
                 model=config.MODEL,
                 max_tokens=config.MAX_TOKENS,
                 system=build_system(conv),
                 tools=_tools_with_cache(),
-                messages=_with_cache_marker(build_messages(conv)),
+                messages=messages,
             )
-            if round_no == config.MAX_TOOL_ROUNDS:
+            if round_no == config.MAX_TOOL_ROUNDS or nudged:
                 params["tool_choice"] = {"type": "none"}
 
             with api.messages.stream(**params) as stream:
                 for event in stream:
                     if event.type == "text":
+                        if event.text:
+                            got_text = True
                         yield {"type": "text", "delta": event.text}
                 final = stream.get_final_message()
 
@@ -285,8 +296,21 @@ def run_turn(conv_id: int, user_text: str | None) -> Iterator[dict]:
                 calls = []
             if blocks:
                 storage.add_message(conv_id, turn, "assistant", blocks)
-            if not calls:
+
+            if final.stop_reason == "max_tokens":
+                print(f"  ⚠ answer cut by MAX_TOKENS={config.MAX_TOKENS} (usage: {final.usage})", flush=True)
+                yield {"type": "error", "message": tr("err_truncated", limit=config.MAX_TOKENS)}
                 break
+            if not calls:
+                if got_text:
+                    break
+                print(f"  ⚠ empty answer: stop_reason={final.stop_reason}, usage={final.usage}", flush=True)
+                if not nudged and final.stop_reason in ("end_turn", "stop_sequence"):
+                    nudged = True
+                    continue
+                yield {"type": "error", "message": tr("err_empty_answer", reason=final.stop_reason)}
+                break
+            round_no += 1
 
             results = []
             for call in calls:

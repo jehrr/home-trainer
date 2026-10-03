@@ -49,7 +49,7 @@ if LANGUAGE not in ("ru", "en"):
 
 MODEL = os.getenv("MODEL", "claude-sonnet-5")
 SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "claude-haiku-4-5-20251001")
-MAX_TOKENS = int(os.getenv("MAX_TOKENS", "2048"))
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "4096"))
 
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8765"))
