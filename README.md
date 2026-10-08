@@ -1,8 +1,10 @@
 # Home Trainer
 
-A local AI coaching agent for road cycling, built on Claude. It pulls data on its own from Intervals.icu (workouts, recovery), from the WHOOP band (workouts recorded without a bike computer) and weather forecasts from Open-Meteo, keeps a training plan, and remembers your conversations and key facts about you as an athlete.
+A local AI coach for road cycling, built on Claude. It pulls data on its own from Intervals.icu (workouts, recovery), from the WHOOP band (workouts recorded without a bike computer) and weather forecasts from Open-Meteo, keeps a training plan, and remembers your conversations and key facts about you as an athlete.
 
 The interface and the coach are available in English and Russian; you choose the language during setup.
+
+![Morning briefing](docs/screenshot-briefing.png)
 
 ## Setup
 
@@ -38,10 +40,14 @@ Then open http://localhost:8765.
 - **Training plan** — stored locally. The coach builds and reschedules workouts through the chat; the Plan panel shows the schedule and statuses.
 - **Plan vs. actual** — completed, partial, missed, and unplanned sessions. Statuses update automatically.
 - **Weekly review** — weekly volume and load, intensity distribution, aerobic decoupling on long rides, best efforts and an FTP estimate, fitness and form trends, and recommendations for the next week.
-- **Post-ride feedback** — the "Last ride" block in the sidebar lets you log RPE and how you felt. For activities with no data (imported from Strava), you can also enter duration and average heart rate. You can simply tell the coach in the chat as well.
-- **Weather and places** — hourly forecast for your workout window and management of saved training locations, by name or by coordinates.
+- **Post-ride feedback** — the **Last ride** block in the sidebar lets you log RPE and how you felt. For activities with no data (imported from Strava), you can also enter duration and average heart rate. You can simply tell the coach in the chat as well.
+- **Weather & places** — hourly forecast for your workout window and management of saved training locations, by name or by coordinates.
 
-To have the morning briefing check the weather automatically, set your usual training location and start time in the profile panel, or specify them for individual workouts in the plan.
+To have the morning briefing check the weather automatically, set your usual training location and start time under **About me**, or specify them for individual workouts in the plan.
+
+| Training plan | Workout forecast |
+|---|---|
+| ![Training plan](docs/screenshot-plan.png) | ![Workout forecast](docs/screenshot-weather.png) |
 
 ## WHOOP
 
@@ -59,7 +65,7 @@ How WHOOP data is merged with Intervals.icu:
 
 1. Sign in at [developer-dashboard.whoop.com](https://developer-dashboard.whoop.com) with your WHOOP account and create a new app.
 2. Set **Redirect URI** to exactly `http://localhost:8765/whoop/callback` (if you changed `PORT`, use that port).
-3. Select the scopes `read:workout`, `read:recovery`, `read:sleep`, `read:profile` and `offline`.
+3. Select the scopes `read:workout`, `read:recovery`, `read:sleep` and `read:profile` (extra scopes don't hurt). There is no `offline` checkbox: the app requests it during sign-in to keep access without re-login.
 4. Copy the **Client ID** and **Client Secret** into `.env` as `WHOOP_CLIENT_ID` and `WHOOP_CLIENT_SECRET` (or enter them in `configure.py`), and restart the server.
 5. Open the app → **About me** → **Connect WHOOP**, sign in to WHOOP and allow access.
 
@@ -69,11 +75,11 @@ Tokens are stored in `data/whoop_tokens.json` and refreshed automatically; the `
 
 ## Getting started
 
-1. Save your training locations in "Weather and places" and set your usual location and start time in the profile panel.
+1. Save your training locations in **Weather & places** and set your usual location and start time under **About me**.
 2. Ask the coach to build a plan, either with the button in the Plan panel or in your own words, e.g. "build a two-week plan, 6 hours a week, long ride on Saturday".
-3. Press "Morning briefing" in the morning, rate your ride in the "Last ride" block afterwards, and run the "Weekly review" at the end of the week.
+3. Press **Morning briefing** in the morning, rate your ride in the **Last ride** block afterwards, and run the **Weekly review** at the end of the week.
 
-Everything the coach knows about you can be viewed and edited in the profile panel.
+Everything the coach knows about you can be viewed and edited under **About me**.
 
 ## How it works
 
@@ -122,6 +128,10 @@ Intervals.icu does not return activities imported from Strava through its API. I
 ## Privacy
 
 The app runs entirely on your computer; your data is sent only to the Anthropic API to generate replies. See [PRIVACY.md](PRIVACY.md).
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
