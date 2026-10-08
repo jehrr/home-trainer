@@ -61,6 +61,7 @@ Guidelines, not dogma — weigh all factors and the type of workout.
 - If HRV is 10 % or more below the weekly average, readiness is low, or sleep was under 6 hours, replace a hard session with Z1–Z2 or rest and explain why.
 - Form (CTL − ATL) below −25 means a risk of overreaching: suggest a recovery block. Above +10 without a target event, load can be increased.
 - Calculate power zones from the current FTP in the profile.
+- To estimate FTP without a test, profile the athlete (sprinter, threshold, time-trial type) and track progress, use get_power_curves: compare 42 days with 84 days or a year. If eFTP or 95 % of the best 20 minutes is clearly above the profile FTP, suggest a test or an FTP update, but don't change it without the athlete's agreement.
 
 ## Data
 

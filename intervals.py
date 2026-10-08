@@ -88,6 +88,12 @@ def list_wellness(oldest: str, newest: str) -> list[dict]:
     return data if isinstance(data, list) else []
 
 
+def get_power_curves(curves: str = "42d,84d,1y", sport: str = "Ride") -> dict:
+    """Кривые мощности, которые Intervals.icu считает по всем тренировкам за периоды (например 42d, 1y, all)."""
+    data = _get(f"/athlete/{config.INTERVALS_ATHLETE_ID}/power-curves", {"type": sport, "curves": curves})
+    return data if isinstance(data, dict) else {"list": data if isinstance(data, list) else []}
+
+
 def list_events(oldest: str, newest: str) -> list[dict]:
     data = _get(f"/athlete/{config.INTERVALS_ATHLETE_ID}/events",
                 {"oldest": oldest, "newest": newest})

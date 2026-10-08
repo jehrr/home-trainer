@@ -89,6 +89,20 @@ TOOLS = [
         },
     },
     {
+        "name": "get_power_curves",
+        "description": "Кривые мощности атлета, которые считает Intervals.icu по всем велотренировкам: лучшие "
+                       "мощности на 5 с, 15 с, 1, 5, 20 и 60 минут за выбранные периоды, в ваттах и Вт/кг, и оценка "
+                       "FTP (eFTP), если Intervals её даёт. Используй для профиля сильных и слабых сторон, сравнения "
+                       "формы с прошлыми периодами и оценки FTP без теста.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "periods": {"type": "array", "items": {"type": "string"},
+                            "description": "Периоды: 42d, 84d, 1y, all и т. п. По умолчанию 42d, 84d, 1y"},
+            },
+        },
+    },
+    {
         "name": "get_plan",
         "description": "Тренировочный план атлета (хранится локально): тренировки по датам со структурой, "
                        "длительностью, целевой нагрузкой, местом и статусом.",
@@ -697,6 +711,14 @@ def get_training_analysis(weeks: int = 4) -> dict:
     eftps = [pick(a, "icu_eftp") for a in acts if pick(a, "icu_eftp")]
     if eftps:
         result["intervals_eftp_w"] = _r(eftps[-1])
+    try:
+        pc = get_power_curves(["42d", "84d"])
+        if pc.get("periods"):
+            result["power_curves"] = pc["periods"]
+            result["power_curves_note"] = ("Кривые мощности посчитаны Intervals.icu по всем тренировкам с мощностью: "
+                                           "для оценки FTP и прогресса они надёжнее, чем best_efforts_w за этот период.")
+    except Exception as e:
+        result["power_curves_error"] = str(e)
 
     try:
         wl = get_wellness(days=min(weeks * 7, 60))["days"]
@@ -714,6 +736,90 @@ def get_training_analysis(weeks: int = 4) -> dict:
     if blocked:
         result["warning"] = f"Тренировок из Strava без данных: {blocked}. В нагрузке и зонах они не учтены."
     return result
+
+
+
+# ── Кривые мощности ──────────────────────────────────────
+
+CURVE_POINTS = [(5, "5s"), (15, "15s"), (60, "1min"), (300, "5min"), (1200, "20min"), (3600, "60min")]
+_PERIOD_RE = __import__("re").compile(r"^(\d{1,4}d|\d{1,2}y|all)$")
+
+
+def _curve_series(curve: dict) -> dict[int, float]:
+    """Пары «секунды → ватты» из кривой, в каком бы виде Intervals их ни отдал."""
+    secs = curve.get("secs") or curve.get("seconds")
+    vals = curve.get("values") or curve.get("watts") or curve.get("powers")
+    if isinstance(secs, list) and isinstance(vals, list) and len(secs) == len(vals):
+        return {int(s): float(v) for s, v in zip(secs, vals) if s and v}
+    pts = curve.get("points") or curve.get("data")
+    if isinstance(pts, list):
+        out = {}
+        for p in pts:
+            if isinstance(p, dict) and p.get("secs") and (p.get("watts") or p.get("value")):
+                out[int(p["secs"])] = float(p.get("watts") or p.get("value"))
+            elif isinstance(p, (list, tuple)) and len(p) >= 2 and p[0] and p[1]:
+                out[int(p[0])] = float(p[1])
+        return out
+    return {}
+
+
+def _value_at(series: dict[int, float], secs: int):
+    if secs in series:
+        return series[secs]
+    near = [s for s in series if abs(s - secs) <= secs * 0.1]
+    return series[min(near, key=lambda s: abs(s - secs))] if near else None
+
+
+def _find_eftp(curve: dict):
+    """eFTP модели мощности, если Intervals положил её в кривую."""
+    for key in ("eftp", "ftp", "icu_eftp"):
+        v = curve.get(key)
+        if isinstance(v, (int, float)) and 80 <= v <= 600:
+            return v
+    for model in curve.get("powerModels") or curve.get("models") or []:
+        if isinstance(model, dict):
+            v = model.get("ftp") or model.get("eftp")
+            if isinstance(v, (int, float)) and 80 <= v <= 600:
+                return v
+    return None
+
+
+def get_power_curves(periods=None) -> dict:
+    periods = [p.strip() for p in (periods or ["42d", "84d", "1y"]) if p and p.strip()]
+    bad = [p for p in periods if not _PERIOD_RE.match(p)]
+    if bad:
+        raise ValueError(f"Неверный период {bad[0]!r}: используй, например, 42d, 84d, 1y или all")
+    data = intervals.get_power_curves(",".join(periods))
+    curves = data.get("list") or data.get("curves") or []
+    try:
+        weight = float(storage.get_profile().get("weight_kg") or 0)
+    except ValueError:
+        weight = 0.0
+
+    out: dict = {}
+    for i, curve in enumerate(curves):
+        if not isinstance(curve, dict):
+            continue
+        series = _curve_series(curve)
+        if not series:
+            continue
+        name = curve.get("id") or curve.get("label") or (periods[i] if i < len(periods) else f"curve{i}")
+        best = {label: round(v) for secs, label in CURVE_POINTS if (v := _value_at(series, secs))}
+        item = _clean({
+            "from": (curve.get("start_date_local") or "")[:10],
+            "to": (curve.get("end_date_local") or "")[:10],
+            "best_w": best,
+            "best_w_per_kg": {k: round(v / weight, 2) for k, v in best.items()} if weight else None,
+            "eftp_w": _r(_find_eftp(curve)),
+        })
+        if best.get("20min") and not item.get("eftp_w"):
+            item["ftp_from_20min_w"] = round(best["20min"] * 0.95)
+        out[str(name)] = item
+    if not out:
+        return {"periods": {}, "note": "Intervals.icu не вернул кривых мощности за эти периоды: нет тренировок с мощностью или ответ в неожиданном формате.",
+                "raw_keys": sorted(data.keys())[:15]}
+    return {"sport": "Ride", "weight_kg": weight or None, "periods": out,
+            "hint": "Сравнивай периоды: рост коротких мощностей при застое 20–60 мин — нужна пороговая работа, и наоборот."}
 
 
 # ── Локальный план ───────────────────────────────────────
@@ -998,6 +1104,7 @@ IMPLEMENTATIONS = {
     "get_activity_details": get_activity_details,
     "get_wellness": get_wellness,
     "get_training_analysis": get_training_analysis,
+    "get_power_curves": get_power_curves,
     "get_plan": get_plan,
     "add_planned_workouts": add_planned_workouts,
     "update_planned_workout": update_planned_workout,
