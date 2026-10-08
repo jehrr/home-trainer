@@ -8,7 +8,7 @@ from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -76,6 +76,11 @@ class ProfileIn(BaseModel):
 def index():
     html = (config.STATIC_DIR / "index.html").read_text(encoding="utf-8")
     return HTMLResponse(html.replace('<html lang="ru">', f'<html lang="{config.LANGUAGE}">', 1))
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return FileResponse(config.STATIC_DIR / "favicon.ico", media_type="image/x-icon")
 
 
 @app.get("/api/status")

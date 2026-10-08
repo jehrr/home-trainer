@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Home Trainer">
+  <rect width="512" height="512" rx="112" fill="#22272d"/>
+  <path d="M120 130 H392 a40 40 0 0 1 40 40 V320 a40 40 0 0 1 -40 40 H230 L160 418 V360 H120 a40 40 0 0 1 -40 -40 V170 a40 40 0 0 1 40 -40Z" fill="#0e7c86"/>
+  <path d="M112 278 H150 L166 256 L182 296 L198 278 H232 L250 236 L270 312 L290 278 H312 L334 186 L360 318 L378 278 H400"
+        fill="none" stroke="#f2f4f5" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

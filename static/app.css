@@ -33,7 +33,8 @@ button { font: inherit; cursor: pointer; }
   padding: 20px 18px env(safe-area-inset-bottom, 0px);
 }
 .side-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
-.brand { font-weight: 700; font-size: 20px; letter-spacing: -0.01em; }
+.brand { font-weight: 700; font-size: 20px; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; }
+.brand img { border-radius: 6px; }
 
 .today { background: var(--asphalt-2); border-radius: var(--radius-m); padding: 16px; }
 .plan-line { font-size: 13px; color: #b9c0c7; margin-bottom: 14px; }

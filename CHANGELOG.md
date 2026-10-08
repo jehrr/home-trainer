@@ -20,6 +20,7 @@ First public release.
 - Post-ride feedback (RPE, how you felt), including manual duration and heart rate for activities without data.
 - Persistent memory: conversations in SQLite, automatic summaries of long conversations, athlete profile and notes.
 - English and Russian interface and coach; setup wizard `configure.py`.
+- Logo, favicon and social preview image.
 - Background answer generation: replies are completed and saved even if the page is reloaded; retry for interrupted answers.
 
 [0.1.0]: https://github.com/jehrr/home-trainer/releases/tag/v0.1.0

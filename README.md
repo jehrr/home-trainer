@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.svg" alt="Home Trainer logo" width="120"></p>
+
 # Home Trainer
 
 A local AI coach for road cycling, built on Claude. It pulls data on its own from Intervals.icu (workouts, recovery), from the WHOOP band (workouts recorded without a bike computer) and weather forecasts from Open-Meteo, keeps a training plan, and remembers your conversations and key facts about you as an athlete.
