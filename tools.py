@@ -6,10 +6,12 @@ import math
 import traceback
 from collections import OrderedDict
 from datetime import date, timedelta
+from datetime import datetime as datetime_cls
 
 import intervals
 import storage
 import weather
+import whoop
 from i18n import tr
 from intervals import pick
 
@@ -308,6 +310,9 @@ def _activity_summary(a: dict, fb: dict | None = None) -> dict:
         "max_hr": _r(pick(a, "max_heartrate")),
         "avg_cadence": _r(pick(a, "average_cadence")),
         "ftp_used": _r(pick(a, "icu_ftp")),
+        "whoop_strain": _r(a.get("whoop_strain"), 1),
+        "kilojoules": _r(a.get("kilojoules")),
+        "hr_zones_min": a.get("hr_zones_min"),
         "feedback": _feedback_view(fb),
     })
 
@@ -395,11 +400,89 @@ def _decoupling(watts: list, hr: list) -> float | None:
     return round((ef1 - ef2) / ef1 * 100, 1)
 
 
+def _span(a: dict) -> tuple[datetime_cls, datetime_cls] | None:
+    try:
+        start = datetime_cls.fromisoformat((a.get("start_date_local") or "")[:19])
+    except ValueError:
+        return None
+    secs = pick(a, "elapsed_time", "moving_time") or 0
+    return start, start + timedelta(seconds=int(secs))
+
+
+def merge_activities(icu: list[dict], wh: list[dict]) -> list[dict]:
+    """Объединяет Intervals.icu и WHOOP без двойного учёта одной и той же тренировки.
+
+    - заглушка Strava без данных заменяется тренировкой WHOOP, начавшейся в пределах 20 минут;
+    - тренировка WHOOP, которая по времени перекрывается с записью велокомпьютера, не добавляется
+      отдельно: запись с мощностью важнее, а Strain WHOOP добавляется к ней;
+    - остальные тренировки WHOOP добавляются как самостоятельные.
+    """
+    used: set = set()
+    out = []
+    spans = {w["id"]: _span(w) for w in wh}
+    for a in icu:
+        sa = _span(a)
+        if intervals.is_strava_stub(a):
+            match = None
+            if sa:
+                for w in wh:
+                    sw = spans[w["id"]]
+                    if w["id"] not in used and sw and abs((sw[0] - sa[0]).total_seconds()) <= 1200:
+                        match = w
+                        break
+            if match:
+                used.add(match["id"])
+                out.append({**match, "replaces_id": str(a.get("id"))})
+            else:
+                out.append(a)
+            continue
+        if sa:
+            for w in wh:
+                sw = spans[w["id"]]
+                if w["id"] in used or not sw:
+                    continue
+                overlap = (min(sa[1], sw[1]) - max(sa[0], sw[0])).total_seconds()
+                shorter = min((sa[1] - sa[0]).total_seconds(), (sw[1] - sw[0]).total_seconds()) or 1
+                if overlap > 0 and overlap / shorter >= 0.5:
+                    used.add(w["id"])
+                    a = {**a, "whoop_strain": w.get("whoop_strain")}
+        out.append(a)
+    out += [w for w in wh if w["id"] not in used]
+    return out
+
+
+_whoop_warning = {"text": ""}
+
+
+def list_all_activities(oldest: str, newest: str) -> list[dict]:
+    """Активности за [oldest, newest): Intervals.icu плюс браслет WHOOP, если он подключён."""
+    _whoop_warning["text"] = ""
+    icu_error = None
+    try:
+        icu = intervals.list_activities(oldest, newest)
+    except intervals.IntervalsError as e:
+        icu, icu_error = [], e
+    wh = []
+    if whoop.connected():
+        try:
+            wh = whoop.list_workouts(oldest, newest)
+        except whoop.WhoopError as e:
+            _whoop_warning["text"] = str(e)
+    if icu_error and not wh:
+        raise icu_error
+    return merge_activities(icu, wh)
+
+
 def _activities_with_feedback(oldest: date, newest: date) -> tuple[list[dict], dict]:
-    acts = intervals.list_activities(oldest.isoformat(), (newest + timedelta(days=1)).isoformat())
+    acts = list_all_activities(oldest.isoformat(), (newest + timedelta(days=1)).isoformat())
     acts = [a for a in acts if oldest.isoformat() <= _act_date(a) <= newest.isoformat()]
     acts.sort(key=lambda a: a.get("start_date_local") or "")
-    return acts, storage.feedback_map([a.get("id") for a in acts])
+    ids = [a.get("id") for a in acts] + [a.get("replaces_id") for a in acts if a.get("replaces_id")]
+    fbs = storage.feedback_map(ids)
+    for a in acts:  # оценка, сохранённая для заглушки Strava, переходит к тренировке WHOOP
+        if a.get("replaces_id") and str(a["id"]) not in fbs and a["replaces_id"] in fbs:
+            fbs[str(a["id"])] = fbs[a["replaces_id"]]
+    return acts, fbs
 
 
 # ── Тренировки и восстановление ──────────────────────────
@@ -410,6 +493,8 @@ def get_recent_activities(days: int = 14, limit: int = 20) -> dict:
     items = [_activity_summary(a, fbs.get(str(a.get("id")))) for a in acts[: int(limit)]]
     blocked = sum(1 for i in items if i.get("data_available") is False and not i.get("athlete_reported"))
     result = {"period_days": days, "count": len(items), "activities": items}
+    if _whoop_warning["text"]:
+        result["whoop_warning"] = _whoop_warning["text"]
     if blocked:
         result["warning"] = (f"Тренировок из Strava без данных: {blocked}. Если нужна такая тренировка — "
                              "попроси атлета описать её и сохрани через save_ride_feedback.")
@@ -417,6 +502,11 @@ def get_recent_activities(days: int = 14, limit: int = 20) -> dict:
 
 
 def get_activity_details(activity_id: str) -> dict:
+    if str(activity_id).startswith("whoop:"):
+        a = whoop.get_workout(str(activity_id))
+        out = _activity_summary(a, storage.feedback_map([activity_id]).get(str(activity_id)))
+        out["note"] = "Тренировка с браслета WHOOP: пульс, зоны пульса и Strain, мощности и посекундных данных нет."
+        return out
     a = intervals.get_activity(str(activity_id))
     fb = storage.feedback_map([activity_id]).get(str(activity_id))
     if intervals.is_strava_stub(a):
@@ -540,6 +630,10 @@ def get_training_analysis(weeks: int = 4) -> dict:
             continue
         wk["distance_km"] += (a.get("distance") or 0) / 1000
         wk["tss"] += int(pick(a, "icu_training_load", "tss") or 0)
+        if a.get("whoop_strain"):
+            wk["whoop_strain"] = round(wk.get("whoop_strain", 0) + float(a["whoop_strain"]), 1)
+        if a.get("source") == "WHOOP":
+            wk["whoop_only_sessions"] = wk.get("whoop_only_sessions", 0) + 1
 
         # Потоки нужны для зон, лучших усилий и дрейфа; берём для велотренировок, не больше 25 штук
         if "ride" not in (a.get("type") or "").lower() or streams_used >= 25:
@@ -749,8 +843,8 @@ def compare_plan_vs_actual(days_back: int = 7) -> dict:
 def save_ride_feedback(activity_id=None, date=None, rpe=None, feel=None, note="", duration_min=None, avg_hr=None) -> dict:
     if not activity_id:
         day = _date_arg(date, dt.date.today())
-        acts = intervals.list_activities((day - timedelta(days=14 if not date else 0)).isoformat(),
-                                         (day + timedelta(days=1)).isoformat())
+        acts = list_all_activities((day - timedelta(days=14 if not date else 0)).isoformat(),
+                                   (day + timedelta(days=1)).isoformat())
         acts = [a for a in acts if not date or _act_date(a) == day.isoformat()]
         if not acts:
             raise ValueError("Не нашёл тренировку для оценки — уточни дату")
@@ -760,8 +854,10 @@ def save_ride_feedback(activity_id=None, date=None, rpe=None, feel=None, note=""
         day_str = _date_arg(date, dt.date.today()).isoformat() if date else ""
         if not day_str:
             try:
-                day_str = _act_date(intervals.get_activity(str(activity_id))) or dt.date.today().isoformat()
-            except intervals.IntervalsError:
+                src = whoop.get_workout(str(activity_id)) if str(activity_id).startswith("whoop:") \
+                    else intervals.get_activity(str(activity_id))
+                day_str = _act_date(src) or dt.date.today().isoformat()
+            except (intervals.IntervalsError, whoop.WhoopError):
                 day_str = dt.date.today().isoformat()
     if rpe is not None and not 1 <= int(rpe) <= 10:
         raise ValueError("RPE должно быть от 1 до 10")
@@ -805,7 +901,8 @@ def get_morning_snapshot() -> dict:
     try:
         acts, fbs = _activities_with_feedback(today - timedelta(days=3), today)
         out["last_3_days"] = [_activity_summary(a, fbs.get(str(a.get("id")))) for a in reversed(acts)]
-        hard = [a for a in acts if (_intensity(a) or 0) >= 0.85 and _duration_min(a) >= 30
+        hard = [a for a in acts if ((_intensity(a) or 0) >= 0.85 or float(a.get("whoop_strain") or 0) >= 14)
+                and _duration_min(a) >= 30
                 and _act_date(a) >= (today - timedelta(days=2)).isoformat()]
         if hard:
             flags.append(f"интенсивная тренировка {_act_date(hard[-1])} — меньше 48 часов назад или на границе")
@@ -921,7 +1018,7 @@ def execute(name: str, args: dict) -> tuple[dict, bool]:
         return {"error": f"Неизвестный инструмент {name}"}, True
     try:
         return fn(**(args or {})), False
-    except (intervals.IntervalsError, weather.WeatherError, ValueError, TypeError) as e:
+    except (intervals.IntervalsError, weather.WeatherError, whoop.WhoopError, ValueError, TypeError) as e:
         return {"error": str(e)}, True
     except Exception as e:  # неожиданные ошибки не должны ронять диалог
         traceback.print_exc()

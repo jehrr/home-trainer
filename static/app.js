@@ -319,7 +319,14 @@ async function openMemory() {
     ? m.notes.map((n) => `<div class="mem-item"><span>${esc(n.text)}<small>${esc(n.created_at.slice(0, 10))}</small></span><button class="mem-del" data-note="${n.id}">${t("delete")}</button></div>`).join("")
     : `<p class="mem-hint">${t("notes_empty")}</p>`;
   const places = `<p class="mem-hint">${m.places.length ? t("places_count", { n: m.places.length }) : ""}${t("places_hint")}</p>`;
-  b.innerHTML = `<h3>${t("plan")}</h3><p class="mem-hint">${esc(m.plan)}</p>
+  let wh = { configured: false, connected: false };
+  try { wh = await api("/api/whoop/status"); } catch {}
+  const whoopBlock = `<h3>${t("whoop_title")}</h3>
+    <p class="mem-hint">${t(!wh.configured ? "whoop_setup" : wh.connected ? "whoop_on" : "whoop_off")}</p>
+    ${wh.configured ? (wh.connected
+      ? `<button class="ghost-dark-btn" id="whoop-off">${t("whoop_disconnect")}</button>`
+      : `<a class="primary-btn link-as-btn" href="/whoop/login">${t("whoop_connect")}</a>`) : ""}`;
+  b.innerHTML = `${whoopBlock}<h3>${t("plan")}</h3><p class="mem-hint">${esc(m.plan)}</p>
     <h3>${t("profile")}</h3>
     <form id="profile-form">${profileRows}
       <div class="form-actions"><button type="submit" class="primary-btn" id="profile-save" disabled>${t("save")}</button><span class="save-msg" id="profile-msg"></span></div>
@@ -357,6 +364,11 @@ async function openMemory() {
     }
   };
 
+  if ($("whoop-off")) $("whoop-off").onclick = async () => {
+    if (!confirm(t("whoop_disconnect_confirm"))) return;
+    await api("/api/whoop/disconnect", { method: "POST" });
+    openMemory(); loadLastRide();
+  };
   $("note-form").onsubmit = async (e) => {
     e.preventDefault();
     const text = $("note-input").value.trim();
@@ -554,7 +566,8 @@ async function loadLastRide() {
   const noData = a.data_available === false;
   const name = noData ? t("strava_ride") : (a.name || t("ride"));
   const dur = a.duration_min || (fb && fb.manual_duration_min);
-  const meta = [a.date, dur ? `${dur} ${t("min")}` : "", a.load_tss ? `TSS ${a.load_tss}` : ""].filter(Boolean).join(", ");
+  const meta = [a.date, dur ? `${dur} ${t("min")}` : "", a.load_tss ? `TSS ${a.load_tss}` : "",
+    a.whoop_strain ? `Strain ${a.whoop_strain}` : "", a.avg_hr && !a.load_tss ? `${a.avg_hr} bpm` : ""].filter(Boolean).join(", ");
   const fbText = fb && (fb.rpe || fb.feel)
     ? [fb.rpe ? `RPE ${fb.rpe}` : "", fb.feel ? FEEL[fb.feel - 1] : ""].filter(Boolean).join(", ") : "";
   box.innerHTML = `<div class="lr-title">${t("last_ride")}</div>
@@ -715,6 +728,10 @@ async function init() {
 
   loadToday();
   loadLastRide();
+  if (new URLSearchParams(location.search).get("whoop") === "connected") {
+    history.replaceState(null, "", "/");
+    openMemory();
+  }
   const list = await loadConversations();
   if (list.length) openConversation(list[0].id); else showEmpty();
 }

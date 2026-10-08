@@ -4,12 +4,15 @@
 !/.gitignore
 !/.env.example
 !/README.md
+!/LICENSE
+!/PRIVACY.md
 !/requirements.txt
 !/app.py
 !/agent.py
 !/tools.py
 !/intervals.py
 !/weather.py
+!/whoop.py
 !/storage.py
 !/config.py
 !/configure.py
@@ -21,3 +24,4 @@
 .env
 *.db
 __pycache__/
+.DS_Store

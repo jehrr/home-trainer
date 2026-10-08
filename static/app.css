@@ -161,6 +161,8 @@ button { font: inherit; cursor: pointer; }
 .note-add { display: flex; gap: 8px; margin-top: 10px; }
 .note-add input { flex: 1; border: 1px solid var(--line); border-radius: var(--radius-s); padding: 7px 10px; font: inherit; font-size: 14px; }
 .note-add input:focus { outline: none; border-color: var(--teal); }
+.link-as-btn { display: inline-block; text-decoration: none; }
+.link-as-btn:hover { text-decoration: none; }
 .ghost-dark-btn { background: none; border: 1px solid var(--line); border-radius: var(--radius-s); padding: 7px 12px; color: var(--ink); }
 .ghost-dark-btn:hover { border-color: var(--teal); }
 .mem-del { background: none; border: 0; color: var(--muted); font-size: 13px; }

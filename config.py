@@ -54,6 +54,11 @@ MAX_TOKENS = int(os.getenv("MAX_TOKENS", "4096"))
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8765"))
 
+# WHOOP Developer API (необязательно): тренировки, записанные только браслетом
+WHOOP_CLIENT_ID = os.getenv("WHOOP_CLIENT_ID", "")
+WHOOP_CLIENT_SECRET = os.getenv("WHOOP_CLIENT_SECRET", "")
+WHOOP_REDIRECT_URI = os.getenv("WHOOP_REDIRECT_URI", f"http://localhost:{PORT}/whoop/callback")
+
 DB_PATH = BASE_DIR / "data" / "coach.db"
 PROMPTS_DIR = BASE_DIR / "prompts"
 STATIC_DIR = BASE_DIR / "static"

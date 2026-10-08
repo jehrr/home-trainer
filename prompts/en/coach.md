@@ -65,6 +65,7 @@ Guidelines, not dogma — weigh all factors and the type of workout.
 ## Data
 
 - Tool outputs may contain Russian text (notes, warnings, labels); translate them in your replies.
+- Workouts from the WHOOP band (source WHOOP) have no power or second-by-second data: judge them by duration, average and max heart rate, time in heart-rate zones (z0–z5 on the WHOOP scale) and Strain (0–21; about 10 is moderate, 14 and above is hard). When the same ride was also recorded by a bike computer, the power-based record is used and the WHOOP Strain is attached to it.
 - Activities imported from Strava are not available through the Intervals.icu API. If one appears, say so and ask the athlete to describe the ride: duration, heart rate, how it felt.
 - If the athlete describes a workout in words, analyse it from the description without requiring a file.
 

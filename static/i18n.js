@@ -69,6 +69,12 @@ const I18N = {
     day_label: "{weekday}, {day} {month}",
     // Статус
     intervals_keys: "ключи Intervals.icu", missing_env: "Не заданы в .env: {list}", server_down: "Сервер недоступен",
+    whoop_title: "Браслет WHOOP",
+    whoop_on: "Подключён: тренировки, записанные только браслетом, попадают к тренеру.",
+    whoop_off: "Не подключён: тренировки, записанные только браслетом, тренер не видит.",
+    whoop_setup: "Чтобы подключить, создай приложение на developer-dashboard.whoop.com, впиши WHOOP_CLIENT_ID и WHOOP_CLIENT_SECRET в .env и перезапусти сервер. Подробно — в README.",
+    whoop_connect: "Подключить WHOOP", whoop_disconnect: "Отключить",
+    whoop_disconnect_confirm: "Отключить WHOOP? Тренировки с браслета перестанут поступать к тренеру.",
   },
 
   en: {
@@ -133,6 +139,12 @@ const I18N = {
     months_gen: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
     day_label: "{weekday}, {month} {day}",
     intervals_keys: "Intervals.icu keys", missing_env: "Missing in .env: {list}", server_down: "Server unavailable",
+    whoop_title: "WHOOP band",
+    whoop_on: "Connected: workouts recorded only by the band reach the coach.",
+    whoop_off: "Not connected: the coach can't see workouts recorded only by the band.",
+    whoop_setup: "To connect, create an app at developer-dashboard.whoop.com, add WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET to .env and restart the server. See the README for details.",
+    whoop_connect: "Connect WHOOP", whoop_disconnect: "Disconnect",
+    whoop_disconnect_confirm: "Disconnect WHOOP? Workouts from the band will stop reaching the coach.",
   },
 };
 

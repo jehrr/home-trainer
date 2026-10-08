@@ -8,7 +8,7 @@ from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -16,6 +16,7 @@ import agent
 import config
 import storage
 import tools
+import whoop
 from i18n import tr
 import weather
 
@@ -173,6 +174,50 @@ def retry(conv_id: int):
     if not storage.get_conversation(conv_id):
         raise HTTPException(404, tr("err_conv_not_found"))
     return _stream_turn(conv_id, None)
+
+
+# ── WHOOP ────────────────────────────────────────────────
+
+def _whoop_page(title: str, text: str, ok: bool) -> HTMLResponse:
+    import html
+    title, text = html.escape(title), html.escape(text)
+    color = "#1f7a45" if ok else "#9b2c28"
+    body = (f'<!DOCTYPE html><html lang="{config.LANGUAGE}"><head><meta charset="utf-8">'
+            f'<meta name="viewport" content="width=device-width, initial-scale=1"><title>{title}</title></head>'
+            f'<body style="font-family:system-ui,sans-serif;max-width:520px;margin:15vh auto;padding:0 20px">'
+            f'<h1 style="color:{color};font-size:22px">{title}</h1><p>{text}</p>'
+            f'<p><a href="/">{tr("whoop_back")}</a></p></body></html>')
+    return HTMLResponse(body, status_code=200 if ok else 400)
+
+
+@app.get("/whoop/login")
+def whoop_login():
+    try:
+        return RedirectResponse(whoop.authorize_url())
+    except whoop.WhoopError as e:
+        return _whoop_page(tr("whoop_failed_title"), str(e), False)
+
+
+@app.get("/whoop/callback")
+def whoop_callback(code: str = "", state: str = "", error: str = "", error_description: str = ""):
+    if error:
+        return _whoop_page(tr("whoop_failed_title"), f"{error}: {error_description}", False)
+    try:
+        whoop.finish_authorization(code, state)
+    except whoop.WhoopError as e:
+        return _whoop_page(tr("whoop_failed_title"), str(e), False)
+    return RedirectResponse("/?whoop=connected")
+
+
+@app.get("/api/whoop/status")
+def whoop_status():
+    return whoop.status()
+
+
+@app.post("/api/whoop/disconnect")
+def whoop_disconnect():
+    whoop.disconnect()
+    return whoop.status()
 
 
 # ── Память атлета ────────────────────────────────────────
