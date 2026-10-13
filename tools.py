@@ -70,8 +70,9 @@ TOOLS = [
     },
     {
         "name": "get_wellness",
-        "description": "Восстановление по дням (данные WHOOP через Intervals.icu): HRV, пульс покоя, сон, "
-                       "готовность, а также фитнес (CTL), усталость (ATL) и форма.",
+        "description": "Восстановление по дням: HRV, пульс покоя, сон, а при подключённом WHOOP — напрямую из "
+                       "него Recovery %, фазы сна, недосып, эффективность сна, SpO2, температура кожи и дневной Strain; "
+                       "плюс фитнес (CTL), усталость (ATL) и форма из Intervals.icu.",
         "input_schema": {
             "type": "object",
             "properties": {"days": {"type": "integer", "description": "За сколько дней, по умолчанию 7", "minimum": 1, "maximum": 60}},
@@ -586,13 +587,30 @@ WELLNESS_FIELDS = {
 }
 
 
+# Показатели, которые при подключённом WHOOP берутся прямо из него (свежее и подробнее, чем через Intervals)
+WHOOP_OVERRIDES = ("hrv", "resting_hr", "sleep_h", "respiration", "spo2")
+
+
 def get_wellness(days: int = 7) -> dict:
     newest = date.today()
     oldest = newest - timedelta(days=int(days) - 1)
-    rows = intervals.list_wellness(oldest.isoformat(), newest.isoformat())
-    rows.sort(key=lambda r: r.get("id") or "")
-    out_days = []
-    for r in rows:
+
+    icu_rows, icu_error = [], None
+    try:
+        icu_rows = intervals.list_wellness(oldest.isoformat(), newest.isoformat())
+    except intervals.IntervalsError as e:
+        icu_error = e
+    whoop_rows, whoop_error = [], None
+    if whoop.connected():
+        try:
+            whoop_rows = whoop.list_wellness(oldest.isoformat(), (newest + timedelta(days=1)).isoformat())
+        except whoop.WhoopError as e:
+            whoop_error = str(e)
+    if icu_error and not whoop_rows:
+        raise icu_error
+
+    by_day: dict[str, dict] = {}
+    for r in icu_rows:
         d = {"date": r.get("id")}
         for out_key, keys in WELLNESS_FIELDS.items():
             v = pick(r, *keys)
@@ -603,14 +621,42 @@ def get_wellness(days: int = 7) -> dict:
             d["sleep_h"] = round(sleep / 3600, 1)
         if d.get("fitness_ctl") is not None and d.get("fatigue_atl") is not None:
             d["form_tsb"] = round(d["fitness_ctl"] - d["fatigue_atl"], 1)
-        if len(d) > 1:
-            out_days.append(d)
+        if d["date"]:
+            by_day[d["date"]] = d
+    for w in whoop_rows:
+        d = by_day.setdefault(w["date"], {"date": w["date"]})
+        for k in WHOOP_OVERRIDES:
+            d.pop(k, None)
+        d.update({k: v for k, v in w.items() if k != "date"})
+        d.pop("readiness", None)  # готовность в Intervals — это тот же Recovery WHOOP, только с задержкой
+        d["recovery_source"] = "WHOOP"
 
-    result = {"days": out_days}
+    out_days = [by_day[k] for k in sorted(by_day) if len(by_day[k]) > 1]
+    # Intervals обновляет фитнес и форму с задержкой: для свежих дней берём последние известные значения
+    last_fit = None
+    for d in out_days:
+        if d.get("fitness_ctl") is not None:
+            last_fit = d
+        elif last_fit:
+            for k in ("fitness_ctl", "fatigue_atl", "form_tsb"):
+                if last_fit.get(k) is not None:
+                    d[k] = last_fit[k]
+            d["fitness_as_of"] = last_fit["date"]
+    result: dict = {"days": out_days}
     hrvs = [d["hrv"] for d in out_days if d.get("hrv")]
     if len(hrvs) >= 3:
         result["hrv_avg"] = round(sum(hrvs) / len(hrvs), 1)
         result["hrv_latest_vs_avg_pct"] = round(100 * (hrvs[-1] / result["hrv_avg"] - 1))
+    recs = [d["recovery_pct"] for d in out_days if d.get("recovery_pct") is not None]
+    if recs:
+        result["recovery_avg_pct"] = round(sum(recs) / len(recs))
+    if whoop_rows:
+        result["note"] = ("Восстановление и сон — напрямую из WHOOP (recovery_pct: 67–100 зелёная зона, 34–66 жёлтая, "
+                          "0–33 красная). Фитнес, усталость и форма — из Intervals.icu.")
+    if whoop_error:
+        result["whoop_warning"] = whoop_error + " Данные восстановления взяты из Intervals.icu."
+    if icu_error:
+        result["intervals_warning"] = f"{icu_error}. Фитнес, усталость и форма недоступны."
     return result
 
 
@@ -994,6 +1040,13 @@ def get_morning_snapshot() -> dict:
             flags.append(f"HRV на {abs(w['hrv_latest_vs_avg_pct'])} % ниже среднего за неделю")
         if latest.get("sleep_h") and latest["sleep_h"] < 6:
             flags.append(f"сон всего {latest['sleep_h']} ч")
+        rec = latest.get("recovery_pct")
+        if rec is not None and rec < 34:
+            flags.append(f"Recovery WHOOP {rec} %: красная зона")
+        elif rec is not None and rec < 67:
+            flags.append(f"Recovery WHOOP {rec} %: жёлтая зона")
+        if (latest.get("sleep_debt_h") or 0) >= 1:
+            flags.append(f"недосып по WHOOP около {latest['sleep_debt_h']} ч")
         if latest.get("form_tsb") is not None and latest["form_tsb"] < -25:
             flags.append(f"форма {latest['form_tsb']}: высокая накопленная усталость")
     except Exception as e:

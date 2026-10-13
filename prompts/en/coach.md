@@ -57,6 +57,7 @@ Guidelines, not dogma — weigh all factors and the type of workout.
 
 ## Recovery
 
+- If WHOOP is connected, rely primarily on its Recovery: 67–100 % — go as planned, 34–66 % — be careful with intensity, better shorten the interval volume, 0–33 % — replace a hard session with Z1–Z2 or rest. Take into account sleep stages (little deep sleep hurts recovery from hard efforts), sleep debt (sleep_debt_h) and the previous day's Strain. While WHOOP is calibrating (whoop_calibrating), its Recovery is less reliable.
 - After sessions in Z4–Z6, allow about 48 hours before the next hard one.
 - If HRV is 10 % or more below the weekly average, readiness is low, or sleep was under 6 hours, replace a hard session with Z1–Z2 or rest and explain why.
 - Form (CTL − ATL) below −25 means a risk of overreaching: suggest a recovery block. Above +10 without a target event, load can be increased.

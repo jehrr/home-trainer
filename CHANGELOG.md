@@ -3,6 +3,13 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Power curves from Intervals.icu: best power from 5 s to 60 min over chosen periods, W/kg and eFTP; used in the weekly review.
+- Recovery and sleep read directly from WHOOP when connected: Recovery %, sleep stages, sleep need and debt, SpO2, skin temperature, day Strain. Recovery % is shown in the sidebar.
+
 ## [0.1.0] — 2026-10-08
 
 First public release.
@@ -23,4 +30,5 @@ First public release.
 - Logo, favicon and social preview image.
 - Background answer generation: replies are completed and saved even if the page is reloaded; retry for interrupted answers.
 
+[Unreleased]: https://github.com/jehrr/home-trainer/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/jehrr/home-trainer/releases/tag/v0.1.0

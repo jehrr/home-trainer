@@ -95,14 +95,26 @@ async function loadToday(refresh = false) {
     }
     setGauge("g-hrv", d.hrv != null ? Math.round(d.hrv) : null, hrvCls);
     setGauge("g-sleep", d.sleep_h, d.sleep_h ? (d.sleep_h < 6 ? "bad" : d.sleep_h < 7 ? "warn" : "good") : "");
-    setGauge("g-rhr", d.resting_hr != null ? Math.round(d.resting_hr) : null);
+    const rhrLabel = document.querySelector("#g-rhr + .g-lab");
+    if (d.recovery_pct != null) {
+      // Recovery WHOOP: 67–100 зелёная, 34–66 жёлтая, 0–33 красная зона
+      setGauge("g-rhr", Math.round(d.recovery_pct) + "%", d.recovery_pct >= 67 ? "good" : d.recovery_pct >= 34 ? "warn" : "bad");
+      rhrLabel.textContent = t("g_recovery");
+    } else {
+      setGauge("g-rhr", d.resting_hr != null ? Math.round(d.resting_hr) : null);
+      rhrLabel.textContent = t("g_rhr");
+    }
     setGauge("g-form", d.form_tsb != null ? Math.round(d.form_tsb) : null,
       d.form_tsb != null ? (d.form_tsb < -25 ? "bad" : d.form_tsb < -10 ? "warn" : "good") : "");
     const trend = (td.hrv_trend || []).filter((v) => v != null);
     const max = Math.max(...trend, 1), min = Math.min(...trend, max);
     const h = (v) => (max === min ? 70 : 25 + Math.round(((v - min) / (max - min)) * 75));
     $("spark").innerHTML = trend.map((v) => `<span style="height:${h(v)}%" title="HRV ${Math.round(v)}"></span>`).join("");
-    $("today-note").textContent = d.date ? (td.hrv_avg ? t("today_data_avg", { date: d.date, avg: td.hrv_avg }) : t("today_data", { date: d.date })) : t("no_recovery");
+    const extra = [d.recovery_pct != null && d.resting_hr != null ? t("rhr_inline", { v: Math.round(d.resting_hr) }) : "",
+      d.sleep_debt_h ? t("sleep_debt_inline", { v: d.sleep_debt_h }) : ""].filter(Boolean).join(", ");
+    $("today-note").textContent = d.date
+      ? (td.hrv_avg ? t("today_data_avg", { date: d.date, avg: td.hrv_avg }) : t("today_data", { date: d.date })) + (extra ? ". " + extra.charAt(0).toUpperCase() + extra.slice(1) : "")
+      : t("no_recovery");
   } catch (e) {
     $("today-note").textContent = t("recovery_failed");
   }

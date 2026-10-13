@@ -57,6 +57,8 @@ Intervals.icu imports only wellness data from WHOOP (sleep, HRV, recovery), not 
 
 What the coach gets for each WHOOP workout: sport, start time and duration, Strain, average and max heart rate, calories, distance and time in heart-rate zones. Second-by-second heart rate is not available in the WHOOP API, and the band has no power data.
 
+When WHOOP is connected, recovery and sleep are also read directly from WHOOP instead of through Intervals.icu: they are available as soon as WHOOP scores your sleep, and include more detail — Recovery %, sleep stages, sleep need and debt, sleep efficiency and consistency, SpO2, skin temperature and the previous day's Strain. Fitness, fatigue and form (CTL, ATL, TSB) still come from Intervals.icu. If either source is unavailable, the other one is used.
+
 How WHOOP data is merged with Intervals.icu:
 
 - a Strava placeholder in Intervals.icu (no data) is replaced by the matching WHOOP workout, if it started within 20 minutes;
@@ -67,7 +69,7 @@ How WHOOP data is merged with Intervals.icu:
 
 1. Sign in at [developer-dashboard.whoop.com](https://developer-dashboard.whoop.com) with your WHOOP account and create a new app.
 2. Set **Redirect URI** to exactly `http://localhost:8765/whoop/callback` (if you changed `PORT`, use that port).
-3. Select the scopes `read:workout`, `read:recovery`, `read:sleep` and `read:profile` (extra scopes don't hurt). There is no `offline` checkbox: the app requests it during sign-in to keep access without re-login.
+3. Select the scopes `read:workout`, `read:recovery`, `read:sleep`, `read:cycles` and `read:profile` (extra scopes don't hurt). There is no `offline` checkbox: the app requests it during sign-in to keep access without re-login.
 4. Copy the **Client ID** and **Client Secret** into `.env` as `WHOOP_CLIENT_ID` and `WHOOP_CLIENT_SECRET` (or enter them in `configure.py`), and restart the server.
 5. Open the app → **About me** → **Connect WHOOP**, sign in to WHOOP and allow access.
 

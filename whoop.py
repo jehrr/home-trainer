@@ -20,7 +20,7 @@ from i18n import tr
 AUTH_URL = "https://api.prod.whoop.com/oauth/oauth2/auth"
 TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token"
 API_URL = "https://api.prod.whoop.com/developer/v2"
-SCOPES = "read:workout read:recovery read:sleep read:profile offline"
+SCOPES = "read:workout read:recovery read:sleep read:cycles read:profile offline"
 TOKENS_PATH = config.DB_PATH.parent / "whoop_tokens.json"
 
 _client = httpx.Client(timeout=httpx.Timeout(25.0, connect=10.0), transport=httpx.HTTPTransport(retries=2))
@@ -30,6 +30,10 @@ _pending_states: dict[str, float] = {}
 
 class WhoopError(Exception):
     pass
+
+
+class WhoopForbidden(WhoopError):
+    """WHOOP отказал в доступе к конкретным данным: токен действует, но разрешения на них нет."""
 
 
 # ── Состояние подключения ────────────────────────────────
@@ -138,8 +142,9 @@ def _get(path: str, params: dict | None = None) -> dict:
         r = _client.get(API_URL + path, params=params, headers={"Authorization": f"Bearer {token}"})
     except httpx.HTTPError as e:
         raise WhoopError(tr("whoop_no_connection", e=e)) from e
-    if r.status_code == 401:
-        raise WhoopError(tr("whoop_reconnect"))
+    if r.status_code in (401, 403):
+        # Токен только что обновлён и действует, значит, не хватает разрешения именно на эти данные
+        raise WhoopForbidden(tr("whoop_no_scope", path=path))
     if r.status_code >= 400:
         raise WhoopError(tr("whoop_api_error", code=r.status_code, text=r.text[:200]))
     return r.json()
@@ -194,21 +199,96 @@ def normalize(w: dict) -> dict:
     }
 
 
-def list_workouts(oldest: str, newest: str) -> list[dict]:
-    """Тренировки с браслета за период [oldest, newest) в днях ГГГГ-ММ-ДД."""
+def _paged(path: str, oldest: str, newest: str, max_pages: int = 20) -> list[dict]:
+    """Все записи за период [oldest, newest) по дням, с запасом в день по краям из-за часовых поясов."""
     start = datetime.fromisoformat(oldest).replace(tzinfo=timezone.utc) - timedelta(days=1)
     end = datetime.fromisoformat(newest).replace(tzinfo=timezone.utc) + timedelta(days=1)
     params = {"start": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
               "end": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"), "limit": 25}
     out, pages = [], 0
-    while pages < 20:
-        data = _get("/activity/workout", params)
-        out += [normalize(w) for w in data.get("records") or [] if w.get("start")]
+    while pages < max_pages:
+        data = _get(path, params)
+        out += data.get("records") or []
         nxt = data.get("next_token") or data.get("nextToken")
         if not nxt:
             break
         params["nextToken"] = nxt
         pages += 1
+    return out
+
+
+def _hours(ms) -> float | None:
+    return round(ms / 3_600_000, 1) if isinstance(ms, (int, float)) and ms > 0 else None
+
+
+def list_wellness(oldest: str, newest: str) -> list[dict]:
+    """Восстановление, сон и дневной Strain по дням: день — дата пробуждения после основного сна.
+
+    Возвращает записи с ключом date (ГГГГ-ММ-ДД) и показателями WHOOP в тех же единицах, что и у тренера.
+    """
+    sleeps = [s for s in _paged("/activity/sleep", oldest, newest) if not s.get("nap")]
+    recoveries = _paged("/recovery", oldest, newest)
+    try:
+        cycles = {c.get("id"): c for c in _paged("/cycle", oldest, newest)}
+    except WhoopForbidden:
+        cycles = {}  # дневной Strain необязателен: без разрешения read:cycles остальное работает
+
+    days: dict[str, dict] = {}
+    sleep_day: dict = {}
+    for sl in sleeps:
+        if not sl.get("end"):
+            continue
+        day = _local(_parse_utc(sl["end"]), sl.get("timezone_offset")).strftime("%Y-%m-%d")
+        sleep_day[sl.get("id")] = day
+        sc = sl.get("score") or {}
+        st = sc.get("stage_summary") or {}
+        need = sc.get("sleep_needed") or {}
+        asleep_ms = sum((st.get(k) or 0) for k in ("total_light_sleep_time_milli", "total_slow_wave_sleep_time_milli",
+                                                     "total_rem_sleep_time_milli"))
+        d = days.setdefault(day, {"date": day})
+        d.update({k: v for k, v in {
+            "sleep_h": _hours(asleep_ms),
+            "deep_sleep_h": _hours(st.get("total_slow_wave_sleep_time_milli")),
+            "rem_sleep_h": _hours(st.get("total_rem_sleep_time_milli")),
+            "light_sleep_h": _hours(st.get("total_light_sleep_time_milli")),
+            "awake_in_bed_h": _hours(st.get("total_awake_time_milli")),
+            "disturbances": st.get("disturbance_count"),
+            "sleep_need_h": _hours(sum((need.get(k) or 0) for k in need)) if need else None,
+            "sleep_debt_h": _hours(need.get("need_from_sleep_debt_milli")),
+            "respiration": round(sc["respiratory_rate"], 1) if sc.get("respiratory_rate") else None,
+            "sleep_performance_pct": sc.get("sleep_performance_percentage"),
+            "sleep_efficiency_pct": round(sc["sleep_efficiency_percentage"]) if sc.get("sleep_efficiency_percentage") else None,
+            "sleep_consistency_pct": sc.get("sleep_consistency_percentage"),
+        }.items() if v is not None})
+
+    for rec in recoveries:
+        sc = rec.get("score") or {}
+        if rec.get("score_state") not in (None, "SCORED") or not sc:
+            continue
+        day = sleep_day.get(rec.get("sleep_id"))
+        if not day and rec.get("created_at"):
+            day = _parse_utc(rec["created_at"]).strftime("%Y-%m-%d")
+        if not day:
+            continue
+        d = days.setdefault(day, {"date": day})
+        d.update({k: v for k, v in {
+            "recovery_pct": sc.get("recovery_score"),
+            "hrv": round(sc["hrv_rmssd_milli"], 1) if sc.get("hrv_rmssd_milli") else None,
+            "resting_hr": sc.get("resting_heart_rate"),
+            "spo2": round(sc["spo2_percentage"], 1) if sc.get("spo2_percentage") else None,
+            "skin_temp_c": round(sc["skin_temp_celsius"], 1) if sc.get("skin_temp_celsius") else None,
+            "whoop_calibrating": True if sc.get("user_calibrating") else None,
+        }.items() if v is not None})
+        cyc = cycles.get(rec.get("cycle_id"))
+        if cyc and (cyc.get("score") or {}).get("strain") is not None:
+            d["day_strain"] = round(cyc["score"]["strain"], 1)
+
+    return [days[k] for k in sorted(days) if oldest <= k < newest]
+
+
+def list_workouts(oldest: str, newest: str) -> list[dict]:
+    """Тренировки с браслета за период [oldest, newest) в днях ГГГГ-ММ-ДД."""
+    out = [normalize(w) for w in _paged("/activity/workout", oldest, newest) if w.get("start")]
     return [w for w in out if oldest <= w["start_date_local"][:10] < newest]
 
 
